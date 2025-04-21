@@ -21,7 +21,10 @@ elseif(WIN32)
         set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} /MT")
     endif()
     
-    if(CMAKE_GENERATOR_PLATFORM STREQUAL "x64")
+    # Check for ARM64 on Windows
+    if(CMAKE_GENERATOR_PLATFORM STREQUAL "ARM64")
+        set(ARCH_DIR "arm64")
+    elseif(CMAKE_GENERATOR_PLATFORM STREQUAL "x64")
         set(ARCH_DIR "x64")
     else()
         set(ARCH_DIR "Win32")
@@ -56,7 +59,16 @@ if(EMSCRIPTEN)
     set(SKIA_LIB ${LIB_DIR}/libskia.a)
 elseif(WIN32)
     set(LIB_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../build/win/lib/${CMAKE_BUILD_TYPE}/${ARCH_DIR})
-    find_library(SKIA_LIB skia PATHS ${LIB_DIR} NO_DEFAULT_PATH REQUIRED)
+    
+    # Print debug info
+    message(STATUS "Looking for Skia in: ${LIB_DIR}")
+    
+    # Different library name format based on architecture
+    if(ARCH_DIR STREQUAL "arm64")
+        find_library(SKIA_LIB NAMES skia.lib PATHS ${LIB_DIR} NO_DEFAULT_PATH REQUIRED)
+    else()
+        find_library(SKIA_LIB NAMES skia.lib PATHS ${LIB_DIR} NO_DEFAULT_PATH REQUIRED)
+    endif()
     
     if(NOT SKIA_LIB)
         message(FATAL_ERROR "Could not find Skia library in ${LIB_DIR}")
@@ -70,6 +82,7 @@ else()
 endif()
 
 message(STATUS "Build Type: ${CMAKE_BUILD_TYPE}")
+message(STATUS "Architecture: ${ARCH_DIR}")
 message(STATUS "LIB_DIR absolute path: ${LIB_DIR}")
 message(STATUS "SKIA_LIB path: ${SKIA_LIB}")
 

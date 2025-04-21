@@ -282,6 +282,9 @@ class SkiaBuildScript:
         elif self.platform == "ios":
             return ["x86_64", "arm64"]
         elif self.platform == "win":
+            # On Windows ARM64 machine, default to arm64 target
+            if self.is_arm64_host():
+                return ["arm64"]
             return ["x64"]
         elif self.platform == "wasm":
             return ["wasm32"]  # WebAssembly has only one architecture
@@ -290,7 +293,7 @@ class SkiaBuildScript:
         valid_archs = {
             "mac": ["x86_64", "arm64", "universal"],
             "ios": ["x86_64", "arm64"],
-            "win": ["x64", "Win32"],
+            "win": ["x64", "Win32", "arm64"],
             "wasm": ["wasm32"]
         }
         for arch in self.archs:
@@ -301,12 +304,62 @@ class SkiaBuildScript:
     def setup_depot_tools(self):
         if not DEPOT_TOOLS_PATH.exists():
             subprocess.run(["git", "clone", DEPOT_TOOLS_URL, str(DEPOT_TOOLS_PATH)], check=True)
-        os.environ["PATH"] = f"{DEPOT_TOOLS_PATH}:{os.environ['PATH']}"
+        
+        # Properly format the PATH separator based on platform
+        path_separator = ";" if sys.platform.startswith('win') else ":"
+        os.environ["PATH"] = f"{DEPOT_TOOLS_PATH}{path_separator}{os.environ['PATH']}"
+        
+        # On Windows, tell depot_tools to use 'python' instead of 'python3'
+        if sys.platform.startswith('win'):
+            os.environ["DEPOT_TOOLS_WIN_TOOLCHAIN"] = "0"
+            os.environ["PYTHONPATH"] = str(DEPOT_TOOLS_PATH)
+            # Set GN to use python instead of python3
+            os.environ["PYTHON_BIN"] = "python"
 
     def sync_deps(self):
         os.chdir(SKIA_SRC_DIR)
         colored_print("Syncing Deps...", Colors.OKBLUE)
-        subprocess.run(["python3", "tools/git-sync-deps"], check=True)
+        
+        # Disable emsdk setup before syncing deps
+        # It will be installed but not activated to save time and avoid errors
+        self.patch_activate_emsdk()
+        
+        # Check if we're on Windows
+        if sys.platform.startswith('win'):
+            # Set environment variables to prevent emsdk activation problems
+            os.environ["EMSDK_NOTTY"] = "1"  # Prevent TTY detection
+            os.environ["EMSDK"] = "0"        # Disable emsdk
+            # Use 'python' or 'py' on Windows
+            subprocess.run(["python", "tools/git-sync-deps"], check=True)
+        else:
+            # Use 'python3' on macOS/Linux
+            subprocess.run(["python3", "tools/git-sync-deps"], check=True)
+
+    def is_arm64_host(self):
+        """Detect if we're running on an ARM64 host."""
+        if sys.platform.startswith('win'):
+            # Check for ARM64 in environment variables
+            if "CLANGARM64" in os.environ.get("MSYSTEM", ""):
+                return True
+            
+            # Try to detect ARM64 using Windows-specific methods
+            try:
+                # Try using the PROCESSOR_ARCHITECTURE environment variable
+                if os.environ.get("PROCESSOR_ARCHITECTURE", "").lower() == "arm64":
+                    return True
+                
+                # Try detecting using PowerShell if available
+                result = subprocess.run(
+                    ["powershell", "-Command", "(Get-WmiObject Win32_Processor).Architecture -eq 12"],
+                    capture_output=True, text=True, check=False
+                )
+                if result.stdout.strip().lower() == "true":
+                    return True
+            except Exception:
+                pass
+        
+        # For non-Windows platforms or if detection failed
+        return False
 
     def generate_gn_args(self, arch: str):
         output_dir = TMP_DIR / f"{self.platform}_{self.config}_{arch}"
@@ -320,21 +373,82 @@ class SkiaBuildScript:
             gn_args += "is_debug = false\n"
             gn_args += "is_official_build = true\n"
 
+        # Check if running on ARM64 host
+        is_arm64 = self.is_arm64_host()
+        
         if self.platform == "mac":
             gn_args += f"target_cpu = \"{arch}\""
         elif self.platform == "ios":
             gn_args += f"target_cpu = \"{'arm64' if arch == 'arm64' else 'x64'}\""
         elif self.platform == "win":
             gn_args += f"extra_cflags = [\"{'/MTd' if self.config == 'Debug' else '/MT'}\"]\n"
-            gn_args += f"target_cpu = \"{'x86' if arch == 'Win32' else 'x64'}\"\n"
-            gn_args += "clang_win = \"C:\\Program Files\\LLVM\"\n"
+            
+            if arch == "arm64":
+                gn_args += "target_cpu = \"arm64\"\n"
+                # For ARM64 Windows builds
+                gn_args += "skia_use_sse2 = false\n"
+                gn_args += "skia_use_sse3 = false\n"
+                gn_args += "skia_use_ssse3 = false\n"
+                gn_args += "skia_use_sse41 = false\n"
+                gn_args += "skia_use_sse42 = false\n"
+                gn_args += "skia_use_avx = false\n"
+                gn_args += "skia_use_avx2 = false\n"
+            else:
+                gn_args += f"target_cpu = \"{'x86' if arch == 'Win32' else 'x64'}\"\n"
+                
+                # If building x64 on ARM64, disable CPU-specific optimizations
+                if is_arm64 and arch != "arm64":
+                    colored_print("ARM64 host detected. Disabling x86-specific CPU optimizations...", Colors.WARNING)
+                    gn_args += "skia_enable_ssse3 = false\n"
+                    gn_args += "skia_enable_sse42 = false\n"
+                    gn_args += "skia_enable_avx = false\n"
+                    gn_args += "skia_enable_avx2 = false\n"
+                    gn_args += "skia_enable_hsw = false\n"
+                    gn_args += "skia_enable_f16c = false\n"
+                    gn_args += "skia_enable_popcnt = false\n"
+                    
+            gn_args += "clang_win = \"C:\\\\Program Files\\\\LLVM\"\n"
         elif self.platform == "wasm":
             gn_args += "target_cpu = \"wasm\"\n"
 
         colored_print(f"Generating gn args for {self.platform} {arch} settings:", Colors.OKBLUE)
         colored_print(f"{gn_args}", Colors.OKGREEN)
 
-        subprocess.run(["./bin/gn", "gen", str(output_dir), f"--args={gn_args}"], check=True)
+        # Use platform-specific path to gn
+        if sys.platform.startswith('win'):
+            gn_path = SKIA_SRC_DIR / "bin" / "gn.exe"
+        else:
+            gn_path = "./bin/gn"
+        
+        if not Path(gn_path).exists():
+            colored_print(f"Error: gn executable not found at {gn_path}", Colors.FAIL)
+            gn_dir = SKIA_SRC_DIR / "bin"
+            if gn_dir.exists():
+                colored_print(f"Contents of {gn_dir}:", Colors.WARNING)
+                for file in gn_dir.iterdir():
+                    colored_print(f"  {file.name}", Colors.WARNING)
+            sys.exit(1)
+            
+        # Print environment info for debugging
+        colored_print("Environment information:", Colors.OKBLUE)
+        colored_print(f"  PATH: {os.environ.get('PATH', '')}", Colors.OKGREEN)
+        colored_print(f"  PYTHON_BIN: {os.environ.get('PYTHON_BIN', 'Not set')}", Colors.OKGREEN)
+        colored_print(f"  PYTHONPATH: {os.environ.get('PYTHONPATH', 'Not set')}", Colors.OKGREEN)
+        colored_print(f"  Running on ARM64: {is_arm64}", Colors.OKGREEN)
+        
+        try:
+            result = subprocess.run([str(gn_path), "gen", str(output_dir), f"--args={gn_args}"], 
+                                   check=False, capture_output=True, text=True)
+            if result.returncode != 0:
+                colored_print(f"Error running gn gen:", Colors.FAIL)
+                colored_print(f"Return code: {result.returncode}", Colors.FAIL)
+                colored_print(f"stdout: {result.stdout}", Colors.WARNING)
+                colored_print(f"stderr: {result.stderr}", Colors.WARNING)
+                sys.exit(1)
+            colored_print("GN gen completed successfully", Colors.OKGREEN)
+        except Exception as e:
+            colored_print(f"Exception running gn gen: {e}", Colors.FAIL)
+            sys.exit(1)
 
     def build_skia(self, arch: str):
         output_dir = TMP_DIR / f"{self.platform}_{self.config}_{arch}"
@@ -346,9 +460,42 @@ class SkiaBuildScript:
         if self.platform == "win":
             libs_to_build = [lib[:-4] if lib.endswith('.lib') else lib for lib in libs_to_build]
         
-        # Construct the ninja command with all library targets
-        ninja_command = ["ninja", "-C", str(output_dir)] + libs_to_build
-
+        # Find the ninja executable
+        if sys.platform.startswith('win'):
+            # Look for ninja in depot_tools
+            ninja_path = DEPOT_TOOLS_PATH / "ninja.exe"
+            if not ninja_path.exists():
+                # Try to find it in subfolders
+                for root, dirs, files in os.walk(DEPOT_TOOLS_PATH):
+                    if "ninja.exe" in files:
+                        ninja_path = Path(root) / "ninja.exe"
+                        break
+            
+            if not ninja_path.exists():
+                colored_print("Ninja not found in depot_tools, downloading it...", Colors.WARNING)
+                # Download ninja from GitHub releases
+                import urllib.request
+                import zipfile
+                
+                ninja_zip = TMP_DIR / "ninja.zip"
+                ninja_url = "https://github.com/ninja-build/ninja/releases/download/v1.11.1/ninja-win.zip"
+                
+                colored_print(f"Downloading ninja from {ninja_url}...", Colors.OKBLUE)
+                urllib.request.urlretrieve(ninja_url, ninja_zip)
+                
+                # Extract to temp directory
+                with zipfile.ZipFile(ninja_zip, 'r') as zip_ref:
+                    zip_ref.extractall(TMP_DIR)
+                
+                ninja_path = TMP_DIR / "ninja.exe"
+                colored_print(f"Ninja extracted to {ninja_path}", Colors.OKGREEN)
+                
+            colored_print(f"Using ninja at: {ninja_path}", Colors.OKGREEN)
+            ninja_command = [str(ninja_path), "-C", str(output_dir)] + libs_to_build
+        else:
+            # On non-Windows platforms, ninja should be in the PATH from depot_tools
+            ninja_command = ["ninja", "-C", str(output_dir)] + libs_to_build
+        
         # Run the ninja command
         try:
             subprocess.run(ninja_command, check=True)
@@ -600,48 +747,100 @@ class SkiaBuildScript:
         colored_print(f"GN args summary written to {summary_file}", Colors.OKGREEN)
 
     def modify_deps(self):
+        """Modify the DEPS file to exclude certain dependencies."""
         deps_path = SKIA_SRC_DIR / "DEPS"
         if not deps_path.exists():
             colored_print(f"Error: {deps_path} not found.", Colors.FAIL)
             sys.exit(1)
 
-        with open(deps_path, "r") as file:
-            lines = file.readlines()
+        try:
+            with open(deps_path, "r") as file:
+                lines = file.readlines()
 
-        with open(deps_path, "w") as file:
-            for line in lines:
-                if not any(exclude in line for exclude in EXCLUDE_DEPS):
-                    file.write(line)
-                else:
-                    file.write(f"# {line}")
+            with open(deps_path, "w") as file:
+                for line in lines:
+                    if not any(exclude in line for exclude in EXCLUDE_DEPS):
+                        file.write(line)
+                    else:
+                        file.write(f"# {line}")
 
-        colored_print(f"Modified {deps_path} to exclude specified dependencies.", Colors.OKGREEN)
+            colored_print(f"Modified {deps_path} to exclude specified dependencies.", Colors.OKGREEN)
+        except Exception as e:
+            colored_print(f"Error modifying DEPS file: {e}", Colors.FAIL)
 
     def patch_activate_emsdk(self):
-        if not ACTIVATE_EMSDK_PATH.exists():
-            colored_print(f"Error: {ACTIVATE_EMSDK_PATH} not found.", Colors.FAIL)
-            sys.exit(1)
-
-        with open(ACTIVATE_EMSDK_PATH, "r") as file:
-            lines = file.readlines()
-
-        with open(ACTIVATE_EMSDK_PATH, "w") as file:
-            for line in lines:
-                file.write(line)
-                if line.strip() == "def main():":
-                    file.write("    return\n")
-
-        colored_print(f"Patched {ACTIVATE_EMSDK_PATH} to prevent emscripten downloading.", Colors.OKGREEN)
+        """Modify the activate-emsdk script to prevent it from running emscripten setup."""
+        colored_print("Patching activate-emsdk script...", Colors.OKBLUE)
+        
+        # Path to the activate-emsdk script
+        activate_path = SKIA_SRC_DIR / "bin" / "activate-emsdk"
+        
+        if not activate_path.exists():
+            colored_print(f"Warning: {activate_path} not found, creating a dummy version", Colors.WARNING)
+            activate_path.parent.mkdir(parents=True, exist_ok=True)
+            
+            with open(activate_path, "w") as f:
+                f.write("#!/usr/bin/env python\n\n")
+                f.write("def main():\n")
+                f.write("    return\n\n")
+                f.write("if __name__ == '__main__':\n")
+                f.write("    main()\n")
+            
+            colored_print(f"Created dummy activate-emsdk script", Colors.OKGREEN)
+            return
+            
+        # If the file exists, modify it
+        try:
+            with open(activate_path, "r") as f:
+                content = f.read()
+                
+            # Simple patch: make the main function return immediately
+            if "def main():" in content:
+                content = content.replace("def main():", "def main():\n    return  # Patched to skip emsdk activation")
+                
+                with open(activate_path, "w") as f:
+                    f.write(content)
+                    
+                colored_print(f"Successfully patched {activate_path}", Colors.OKGREEN)
+            else:
+                colored_print(f"Warning: Could not patch {activate_path}, unexpected content", Colors.WARNING)
+                
+        except Exception as e:
+            colored_print(f"Error patching activate-emsdk: {e}", Colors.FAIL)
+            
+    def setup_python3_on_windows(self):
+        """Create a python3.bat file in the PATH to redirect python3 calls to python on Windows."""
+        if not sys.platform.startswith('win'):
+            return
+            
+        colored_print("Setting up python3 wrapper for Windows...", Colors.OKBLUE)
+        
+        # Create a batch file that redirects python3 to python
+        temp_dir = BASE_DIR / "tmp"
+        temp_dir.mkdir(parents=True, exist_ok=True)
+        
+        python3_bat = temp_dir / "python3.bat"
+        with open(python3_bat, "w") as f:
+            f.write('@echo off\r\n')
+            f.write('python %*\r\n')
+        
+        # Add the directory containing the batch file to the PATH
+        os.environ["PATH"] = f"{temp_dir};{os.environ['PATH']}"
+        colored_print(f"Created python3 wrapper at {python3_bat}", Colors.OKGREEN)
 
     def run(self):
         self.parse_arguments()
         self.setup_depot_tools()
+        
+        # Set up python3 wrapper on Windows
+        if sys.platform.startswith('win'):
+            self.setup_python3_on_windows()
+            
         self.setup_skia_repo()
 
-        # if self.config == "Release":
-        #     self.modify_deps()
-        
-        # self.patch_activate_emsdk()
+        # For Release builds, modify DEPS to exclude unnecessary dependencies
+        if self.config == "Release":
+            self.modify_deps()
 
         self.sync_deps()
 

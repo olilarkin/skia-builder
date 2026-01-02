@@ -101,7 +101,11 @@ jobs:
       - name: Package binaries
         shell: bash
         run: |
-          zip -r skia-build-${{ matrix.platform }}-${{ matrix.variant }}.zip build/include build/${{ matrix.platform }}-${{ matrix.variant }}
+          if [ "${{ runner.os }}" == "Windows" ]; then
+            7z a -tzip skia-build-${{ matrix.platform }}-${{ matrix.variant }}.zip build/include build/${{ matrix.platform }}-${{ matrix.variant }}
+          else
+            zip -r skia-build-${{ matrix.platform }}-${{ matrix.variant }}.zip build/include build/${{ matrix.platform }}-${{ matrix.variant }}
+          fi
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4

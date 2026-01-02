@@ -43,7 +43,7 @@ jobs:
       - name: Install LLVM and Clang
         uses: KyleMayes/install-llvm-action@v2
         with:
-          version: "17.0.6"
+          version: "19.1.0"
           env: true
   
       - name: Set Git default branch

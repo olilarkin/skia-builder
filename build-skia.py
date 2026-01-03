@@ -4,7 +4,7 @@
 build-skia.py
 
 This script automates the process of building Skia libraries for various platforms
-(macOS, iOS, and Windows). It handles the setup of the build environment, cloning
+(macOS, iOS, Windows, and Linux). It handles the setup of the build environment, cloning
 of the Skia repository, configuration of build parameters, and compilation of the
 libraries. The script also includes functionality for creating universal binaries
 for macOS and a Swift Package and XCFramework for iOS.
@@ -72,6 +72,7 @@ MAC_LIB_DIR = BASE_DIR / "mac" / "lib"
 IOS_LIB_DIR = BASE_DIR / "ios" / "lib"
 WASM_LIB_DIR = BASE_DIR / "wasm" / "lib"
 WIN_LIB_DIR = BASE_DIR / "win" / "lib"
+LINUX_LIB_DIR = BASE_DIR / "linux" / "lib"
 
 # Platform-specific constants
 MAC_MIN_VERSION = "10.15"
@@ -101,6 +102,11 @@ LIBS = {
         "libskia.a", "libskottie.a", "libskshaper.a", "libsksg.a",
         "libskparagraph.a", "libsvg.a", "libskunicode_core.a",
         "libskunicode_libgrapheme.a" if USE_LIBGRAPHEME else "libskunicode_icu.a"
+    ],
+    "linux": [
+        "libskia.a", "libskottie.a", "libskshaper.a", "libsksg.a",
+        "libskparagraph.a", "libsvg.a", "libskunicode_core.a",
+        "libskunicode_libgrapheme.a" if USE_LIBGRAPHEME else "libskunicode_icu.a"
     ]
 }
 
@@ -110,6 +116,7 @@ GPU_LIBS = {
     "ios": [],  # iOS uses Metal directly
     "win": ["dawn_combined.lib"],
     "wasm": [],  # WASM uses browser WebGPU
+    "linux": ["libdawn_combined.a"],
 }
 
 # Directories to package
@@ -243,6 +250,16 @@ PLATFORM_GN_ARGS = {
     skia_enable_fontmgr_custom_empty = true
     skia_use_freetype_woff2 = true
     skia_enable_skshaper = true
+    """,
+
+    "linux": """
+    skia_use_vulkan = true
+    skia_use_dawn = true
+    skia_use_x11 = true
+    skia_use_fontconfig = true
+    skia_use_freetype = true
+    skia_use_system_freetype2 = false
+    extra_cflags_c = ["-Wno-error"]
     """
 }
 
@@ -322,6 +339,16 @@ PLATFORM_GN_ARGS_CPU = {
     skia_enable_fontmgr_custom_empty = true
     skia_use_freetype_woff2 = true
     skia_enable_skshaper = true
+    """,
+
+    "linux": """
+    skia_use_vulkan = false
+    skia_use_dawn = false
+    skia_use_x11 = true
+    skia_use_fontconfig = true
+    skia_use_freetype = true
+    skia_use_system_freetype2 = false
+    extra_cflags_c = ["-Wno-error"]
     """
 }
 
@@ -335,8 +362,8 @@ class SkiaBuildScript:
         self.variant = "gpu"
 
     def parse_arguments(self):
-        parser = argparse.ArgumentParser(description="Build Skia for macOS, iOS, Windows and WebAssembly")
-        parser.add_argument("platform", choices=["mac", "ios", "win", "wasm", "xcframework"], 
+        parser = argparse.ArgumentParser(description="Build Skia for macOS, iOS, Windows, Linux and WebAssembly")
+        parser.add_argument("platform", choices=["mac", "ios", "win", "linux", "wasm", "xcframework"],
                            help="Target platform or xcframework")
         parser.add_argument("-config", choices=["Debug", "Release"], default="Release", help="Build configuration")
         parser.add_argument("-archs", help="Target architectures (comma-separated)")
@@ -374,6 +401,8 @@ class SkiaBuildScript:
             return ["x86_64", "arm64"]
         elif self.platform == "win":
             return ["x64"]
+        elif self.platform == "linux":
+            return ["x64"]
         elif self.platform == "wasm":
             return ["wasm32"]  # WebAssembly has only one architecture
 
@@ -382,6 +411,7 @@ class SkiaBuildScript:
             "mac": ["x86_64", "arm64", "universal"],
             "ios": ["x86_64", "arm64"],
             "win": ["x64", "Win32"],
+            "linux": ["x64", "arm64"],
             "wasm": ["wasm32"]
         }
         for arch in self.archs:
@@ -398,6 +428,8 @@ class SkiaBuildScript:
             return BASE_DIR / f"ios{variant_suffix}" / "lib"
         elif platform == "wasm":
             return BASE_DIR / f"wasm{variant_suffix}" / "lib"
+        elif platform == "linux":
+            return BASE_DIR / f"linux{variant_suffix}" / "lib"
         else:  # Windows
             return BASE_DIR / f"win{variant_suffix}" / "lib"
 
@@ -436,6 +468,8 @@ class SkiaBuildScript:
             gn_args += f"extra_cflags = [\"{'/MTd' if self.config == 'Debug' else '/MT'}\"]\n"
             gn_args += f"target_cpu = \"{'x86' if arch == 'Win32' else 'x64'}\"\n"
             gn_args += "clang_win = \"C:\\Program Files\\LLVM\"\n"
+        elif self.platform == "linux":
+            gn_args += f"target_cpu = \"{'arm64' if arch == 'arm64' else 'x64'}\"\n"
         elif self.platform == "wasm":
             gn_args += "target_cpu = \"wasm\"\n"
 
@@ -476,7 +510,7 @@ class SkiaBuildScript:
             dest_dir = lib_dir / self.config / arch
         elif self.platform == "wasm":
             dest_dir = lib_dir / self.config
-        else:  # Windows
+        else:  # Windows, Linux
             dest_dir = lib_dir / self.config / arch
 
         dest_dir.mkdir(parents=True, exist_ok=True)
@@ -888,7 +922,7 @@ class SkiaBuildScript:
                         zipf.write(file_path, arcname)
 
                 # Add all platform lib directories for current variant
-                for platform in ["mac", "ios", "win", "wasm"]:
+                for platform in ["mac", "ios", "win", "linux", "wasm"]:
                     lib_dir = self.get_lib_dir(platform)
                     if lib_dir.exists():
                         for root, _, files in os.walk(lib_dir):

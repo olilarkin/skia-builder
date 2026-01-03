@@ -21,6 +21,12 @@ jobs:
           - os: ubuntu-latest
             platform: wasm
             variant: gpu
+          - os: ubuntu-latest
+            platform: linux
+            variant: cpu
+          - os: ubuntu-latest
+            platform: linux
+            variant: gpu
           - os: macos-latest
             platform: mac
             variant: cpu
@@ -53,6 +59,12 @@ jobs:
         run: |
           sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
           sudo docker image prune --all --force
+
+      - name: Install Linux build dependencies
+        if: matrix.platform == 'linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libfontconfig1-dev libgl1-mesa-dev libglu1-mesa-dev libx11-xcb-dev libxcb1-dev libxcb-xkb-dev
 
       - name: Set up Ninja
         uses: seanmiddleditch/gha-setup-ninja@v5
@@ -135,6 +147,8 @@ jobs:
           files: |
             ./skia-build-wasm-cpu/skia-build-wasm-cpu.zip
             ./skia-build-wasm-gpu/skia-build-wasm-gpu.zip
+            ./skia-build-linux-cpu/skia-build-linux-cpu.zip
+            ./skia-build-linux-gpu/skia-build-linux-gpu.zip
             ./skia-build-ios-cpu/skia-build-ios-cpu.zip
             ./skia-build-ios-gpu/skia-build-ios-gpu.zip
             ./skia-build-win-cpu/skia-build-win-cpu.zip

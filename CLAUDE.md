@@ -4,11 +4,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Overview
 
-This repository provides a Python script and GitHub Actions workflow for building Skia static libraries for multiple platforms (macOS, iOS, Windows, WASM). It automates build environment setup, Skia repository cloning, GN argument configuration, and compilation.
+This repository provides a Python script and GitHub Actions workflow for building Skia static libraries for multiple platforms (macOS, iOS, Windows, Linux, WASM). It automates build environment setup, Skia repository cloning, GN argument configuration, and compilation.
 
 ## Build Commands
 
-Prerequisites: ninja, python3, cmake. On Windows, LLVM must be installed at `C:\Program Files\LLVM\`.
+Prerequisites: ninja, python3, cmake. On Windows, LLVM must be installed at `C:\Program Files\LLVM\`. On Linux, install build dependencies: `libfontconfig1-dev libgl1-mesa-dev libglu1-mesa-dev libx11-xcb-dev`.
 
 ```bash
 # May need to increase file limit on macOS first
@@ -18,6 +18,7 @@ ulimit -n 2048
 python3 build-skia.py mac                          # macOS universal (arm64 + x86_64)
 python3 build-skia.py ios                          # iOS (arm64 + x86_64 simulator)
 python3 build-skia.py win                          # Windows x64
+python3 build-skia.py linux                        # Linux x64
 python3 build-skia.py wasm                         # WebAssembly
 python3 build-skia.py xcframework                  # Apple XCFramework (macOS + iOS)
 
@@ -60,6 +61,7 @@ build/
 ├── mac/lib/           # macOS libraries
 ├── ios/lib/           # iOS libraries (per-arch)
 ├── win/lib/           # Windows libraries
+├── linux/lib/         # Linux libraries
 ├── wasm/lib/          # WASM libraries
 └── xcframework/       # XCFramework output
 ```

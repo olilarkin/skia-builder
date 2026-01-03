@@ -80,3 +80,23 @@ LLVM should be installed in `C:\Program Files\LLVM\`
 ```bash
 py -3 build-skia.py -config Release -branch chrome/m129 win
 ```
+
+## CI / GitHub Actions
+
+The repository includes a GitHub Actions workflow (`.github/workflows/build-skia.yml`) that builds all platforms in parallel and creates releases tagged with the Skia branch name.
+
+### Trigger a build manually
+
+```bash
+gh workflow run build-skia.yml
+```
+
+### Check CI status
+
+```bash
+gh run list
+```
+
+### Configuration
+
+To target a different Skia version, change the `SKIA_BRANCH` environment variable in the workflow file.

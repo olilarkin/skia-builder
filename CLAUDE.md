@@ -74,3 +74,8 @@ build/
 ## CI
 
 The GitHub Actions workflow (`.github/workflows/build-skia.yml`) builds all platforms in parallel and creates releases tagged with the Skia branch name. Change `SKIA_BRANCH` env var to target different Skia versions.
+
+```bash
+gh workflow run build-skia.yml   # Trigger a build manually
+gh run list                      # Check CI status
+```

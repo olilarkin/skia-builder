@@ -42,9 +42,27 @@ jobs:
           - os: windows-latest
             platform: win
             variant: cpu
+            archs: x64
           - os: windows-latest
             platform: win
             variant: gpu
+            archs: x64
+          - os: windows-latest
+            platform: win
+            variant: cpu
+            archs: arm64
+          - os: windows-latest
+            platform: win
+            variant: gpu
+            archs: arm64
+          - os: windows-latest
+            platform: win
+            variant: cpu
+            archs: arm64ec
+          - os: windows-latest
+            platform: win
+            variant: gpu
+            archs: arm64ec
     runs-on: ${{ matrix.os }}
     env:
       SKIA_BRANCH: chrome/m144
@@ -99,31 +117,45 @@ jobs:
       - name: Build Skia (Release)
         if: ${{ !inputs.test_mode }}
         run: |
-          python3 build-skia.py ${{ matrix.platform }} -variant ${{ matrix.variant }} -config Release --shallow -branch ${{ env.SKIA_BRANCH }}
+          python3 build-skia.py ${{ matrix.platform }} -variant ${{ matrix.variant }} -config Release --shallow -branch ${{ env.SKIA_BRANCH }} ${{ matrix.archs && format('-archs {0}', matrix.archs) || '' }}
   
       - name: Create dummy files for test mode
         if: ${{ inputs.test_mode }}
+        shell: bash
         run: |
+          ARTIFACT_SUFFIX="${{ matrix.platform }}-${{ matrix.variant }}${{ matrix.archs && format('-{0}', matrix.archs) || '' }}"
           mkdir -p build/include
-          mkdir -p build/${{ matrix.platform }}-${{ matrix.variant }}
+          mkdir -p build/${ARTIFACT_SUFFIX}
           echo "Test file" > build/include/test.h
-          echo "Test lib" > build/${{ matrix.platform }}-${{ matrix.variant }}/test.lib
-          echo "GN args summary" > build/${{ matrix.platform }}-${{ matrix.variant }}/gn_args.txt
+          echo "Test lib" > build/${ARTIFACT_SUFFIX}/test.lib
+          echo "GN args summary" > build/${ARTIFACT_SUFFIX}/gn_args.txt
 
       - name: Package binaries
         shell: bash
         run: |
+          ARTIFACT_SUFFIX="${{ matrix.platform }}-${{ matrix.variant }}${{ matrix.archs && format('-{0}', matrix.archs) || '' }}"
+          PLATFORM_DIR="build/${{ matrix.platform }}-${{ matrix.variant }}"
+
+          # For Windows, the libs are in a subdirectory per architecture
           if [ "${{ runner.os }}" == "Windows" ]; then
-            7z a -tzip skia-build-${{ matrix.platform }}-${{ matrix.variant }}.zip build/include build/${{ matrix.platform }}-${{ matrix.variant }}
+            # Create a clean artifact directory with the architecture-specific libs
+            ARTIFACT_DIR="build/${ARTIFACT_SUFFIX}"
+            mkdir -p "${ARTIFACT_DIR}/lib"
+            cp -r "${PLATFORM_DIR}/lib/Release/${{ matrix.archs }}" "${ARTIFACT_DIR}/lib/"
+            # Copy gn_args.txt if it exists
+            if [ -f "${PLATFORM_DIR}/gn_args.txt" ]; then
+              cp "${PLATFORM_DIR}/gn_args.txt" "${ARTIFACT_DIR}/"
+            fi
+            7z a -tzip skia-build-${ARTIFACT_SUFFIX}.zip build/include ${ARTIFACT_DIR}
           else
-            zip -r skia-build-${{ matrix.platform }}-${{ matrix.variant }}.zip build/include build/${{ matrix.platform }}-${{ matrix.variant }}
+            zip -r skia-build-${ARTIFACT_SUFFIX}.zip build/include ${PLATFORM_DIR}
           fi
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: skia-build-${{ matrix.platform }}-${{ matrix.variant }}
-          path: skia-build-${{ matrix.platform }}-${{ matrix.variant }}.zip
+          name: skia-build-${{ matrix.platform }}-${{ matrix.variant }}${{ matrix.archs && format('-{0}', matrix.archs) || '' }}
+          path: skia-build-${{ matrix.platform }}-${{ matrix.variant }}${{ matrix.archs && format('-{0}', matrix.archs) || '' }}.zip
 
       - name: Set SKIA_BRANCH output
         run: echo "skia_branch=${{ env.SKIA_BRANCH }}" >> $GITHUB_OUTPUT
@@ -151,8 +183,12 @@ jobs:
             ./skia-build-linux-gpu/skia-build-linux-gpu.zip
             ./skia-build-ios-cpu/skia-build-ios-cpu.zip
             ./skia-build-ios-gpu/skia-build-ios-gpu.zip
-            ./skia-build-win-cpu/skia-build-win-cpu.zip
-            ./skia-build-win-gpu/skia-build-win-gpu.zip
+            ./skia-build-win-cpu-x64/skia-build-win-cpu-x64.zip
+            ./skia-build-win-gpu-x64/skia-build-win-gpu-x64.zip
+            ./skia-build-win-cpu-arm64/skia-build-win-cpu-arm64.zip
+            ./skia-build-win-gpu-arm64/skia-build-win-gpu-arm64.zip
+            ./skia-build-win-cpu-arm64ec/skia-build-win-cpu-arm64ec.zip
+            ./skia-build-win-gpu-arm64ec/skia-build-win-gpu-arm64ec.zip
             ./skia-build-mac-cpu/skia-build-mac-cpu.zip
             ./skia-build-mac-gpu/skia-build-mac-gpu.zip
         env:

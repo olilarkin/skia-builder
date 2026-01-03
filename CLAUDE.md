@@ -8,7 +8,12 @@ This repository provides a Python script and GitHub Actions workflow for buildin
 
 ## Build Commands
 
-Prerequisites: ninja, python3, cmake. On Windows, LLVM must be installed at `C:\Program Files\LLVM\`. On Linux, install build dependencies: `libfontconfig1-dev libgl1-mesa-dev libglu1-mesa-dev libx11-xcb-dev`.
+Prerequisites: ninja, python3, cmake. On Linux, install build dependencies: `libfontconfig1-dev libgl1-mesa-dev libglu1-mesa-dev libx11-xcb-dev`.
+
+**Windows Prerequisites:**
+- LLVM must be installed at `C:\Program Files\LLVM\`
+- Visual Studio 2019+ with C++ build tools (for SDK/headers)
+- For ARM64EC builds: Visual Studio 2022 v17.3+ and Windows 11 SDK
 
 ```bash
 # May need to increase file limit on macOS first
@@ -30,6 +35,11 @@ python3 build-skia.py <platform> -archs x86_64,arm64  # Specific architectures
 
 # Windows (use py -3 or the build-win.sh helper)
 py -3 build-skia.py win -config Release -branch chrome/m130
+
+# Windows ARM64/ARM64EC builds
+py -3 build-skia.py win -archs arm64                # Windows ARM64 (native)
+py -3 build-skia.py win -archs arm64ec              # Windows ARM64EC (x64 interop, Win11 only)
+py -3 build-skia.py win -archs x64,arm64            # Build both x64 and ARM64
 ```
 
 **Makefile shortcuts (from macOS):**
@@ -58,11 +68,16 @@ build/
 ├── src/skia/          # Cloned Skia source
 ├── tmp/               # depot_tools, intermediate builds
 ├── include/           # Packaged headers
-├── mac/lib/           # macOS libraries
-├── ios/lib/           # iOS libraries (per-arch)
-├── win/lib/           # Windows libraries
-├── linux/lib/         # Linux libraries
-├── wasm/lib/          # WASM libraries
+├── mac-gpu/lib/       # macOS libraries (GPU variant)
+├── ios-gpu/lib/       # iOS libraries (per-arch)
+├── win-gpu/lib/       # Windows libraries
+│   └── Release/
+│       ├── x64/       # Windows x64
+│       ├── Win32/     # Windows x86
+│       ├── arm64/     # Windows ARM64
+│       └── arm64ec/   # Windows ARM64EC
+├── linux-gpu/lib/     # Linux libraries
+├── wasm-gpu/lib/      # WASM libraries
 └── xcframework/       # XCFramework output
 ```
 

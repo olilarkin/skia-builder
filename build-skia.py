@@ -361,6 +361,27 @@ class SkiaBuildScript:
         self.branch = None
         self.variant = "gpu"
 
+    def is_arm64_host(self):
+        """Detect if we're running on an ARM64 Windows host."""
+        if sys.platform.startswith('win'):
+            # Check for ARM64 in MSYSTEM (MSYS2/MinGW)
+            if "CLANGARM64" in os.environ.get("MSYSTEM", ""):
+                return True
+            # Check PROCESSOR_ARCHITECTURE environment variable
+            if os.environ.get("PROCESSOR_ARCHITECTURE", "").lower() == "arm64":
+                return True
+            # PowerShell fallback for WMI detection
+            try:
+                result = subprocess.run(
+                    ["powershell", "-Command", "(Get-WmiObject Win32_Processor).Architecture -eq 12"],
+                    capture_output=True, text=True, check=False
+                )
+                if result.stdout.strip().lower() == "true":
+                    return True
+            except Exception:
+                pass
+        return False
+
     def parse_arguments(self):
         parser = argparse.ArgumentParser(description="Build Skia for macOS, iOS, Windows, Linux and WebAssembly")
         parser.add_argument("platform", choices=["mac", "ios", "win", "linux", "wasm", "xcframework"],
@@ -400,6 +421,9 @@ class SkiaBuildScript:
         elif self.platform == "ios":
             return ["x86_64", "arm64"]
         elif self.platform == "win":
+            # On Windows ARM64 host, default to arm64 target
+            if self.is_arm64_host():
+                return ["arm64"]
             return ["x64"]
         elif self.platform == "linux":
             return ["x64"]
@@ -410,7 +434,7 @@ class SkiaBuildScript:
         valid_archs = {
             "mac": ["x86_64", "arm64", "universal"],
             "ios": ["x86_64", "arm64"],
-            "win": ["x64", "Win32"],
+            "win": ["x64", "Win32", "arm64", "arm64ec"],
             "linux": ["x64", "arm64"],
             "wasm": ["wasm32"]
         }
@@ -436,12 +460,49 @@ class SkiaBuildScript:
     def setup_depot_tools(self):
         if not DEPOT_TOOLS_PATH.exists():
             subprocess.run(["git", "clone", DEPOT_TOOLS_URL, str(DEPOT_TOOLS_PATH)], check=True)
-        os.environ["PATH"] = f"{DEPOT_TOOLS_PATH}:{os.environ['PATH']}"
+
+        # Use correct PATH separator based on platform
+        path_separator = ";" if sys.platform.startswith('win') else ":"
+        os.environ["PATH"] = f"{DEPOT_TOOLS_PATH}{path_separator}{os.environ['PATH']}"
+
+        # Windows-specific environment variables
+        if sys.platform.startswith('win'):
+            os.environ["DEPOT_TOOLS_WIN_TOOLCHAIN"] = "0"
+            os.environ["PYTHONPATH"] = str(DEPOT_TOOLS_PATH)
+            os.environ["PYTHON_BIN"] = "python"
+
+            # Create python3.bat wrapper for Windows (GN expects python3)
+            # We create both .bat and a copy in skia/bin for good measure
+            python3_bat = DEPOT_TOOLS_PATH / "python3.bat"
+            if not python3_bat.exists():
+                with open(python3_bat, "w") as f:
+                    f.write("@python %*\n")
+                colored_print(f"Created python3.bat wrapper at {python3_bat}", Colors.OKCYAN)
+
+            # Also try to find python.exe and create python3.exe copy
+            import shutil as sh
+            python_exe = sh.which("python")
+            if python_exe:
+                python3_exe = DEPOT_TOOLS_PATH / "python3.exe"
+                if not python3_exe.exists():
+                    try:
+                        sh.copy2(python_exe, python3_exe)
+                        colored_print(f"Created python3.exe at {python3_exe}", Colors.OKCYAN)
+                    except Exception as e:
+                        colored_print(f"Warning: Could not create python3.exe: {e}", Colors.WARNING)
 
     def sync_deps(self):
         os.chdir(SKIA_SRC_DIR)
         colored_print("Syncing Deps...", Colors.OKBLUE)
-        subprocess.run(["python3", "tools/git-sync-deps"], check=True)
+
+        # Use correct Python command based on platform
+        if sys.platform.startswith('win'):
+            # Set environment variables to prevent emsdk activation problems
+            os.environ["EMSDK_NOTTY"] = "1"
+            os.environ["EMSDK"] = "0"
+            subprocess.run(["python", "tools/git-sync-deps"], check=True)
+        else:
+            subprocess.run(["python3", "tools/git-sync-deps"], check=True)
 
     def generate_gn_args(self, arch: str):
         output_dir = TMP_DIR / f"{self.platform}_{self.config}_{arch}_{self.variant}"
@@ -465,9 +526,60 @@ class SkiaBuildScript:
         elif self.platform == "ios":
             gn_args += f"target_cpu = \"{'arm64' if arch == 'arm64' else 'x64'}\""
         elif self.platform == "win":
-            gn_args += f"extra_cflags = [\"{'/MTd' if self.config == 'Debug' else '/MT'}\"]\n"
-            gn_args += f"target_cpu = \"{'x86' if arch == 'Win32' else 'x64'}\"\n"
-            gn_args += "clang_win = \"C:\\Program Files\\LLVM\"\n"
+            is_arm64_host = self.is_arm64_host()
+
+            # Helper to format list as GN array with double quotes
+            def gn_array(items):
+                return "[" + ", ".join(f'"{item}"' for item in items) + "]"
+
+            mt_flag = '/MTd' if self.config == 'Debug' else '/MT'
+
+            if arch == "arm64":
+                gn_args += f"target_cpu = \"arm64\"\n"
+                # Disable x86 SIMD instructions for ARM64
+                gn_args += "skia_use_sse2 = false\n"
+                gn_args += "skia_use_sse3 = false\n"
+                gn_args += "skia_use_ssse3 = false\n"
+                gn_args += "skia_use_sse41 = false\n"
+                gn_args += "skia_use_sse42 = false\n"
+                gn_args += "skia_use_avx = false\n"
+                gn_args += "skia_use_avx2 = false\n"
+                gn_args += f"extra_cflags = {gn_array([mt_flag])}\n"
+            elif arch == "arm64ec":
+                gn_args += f"target_cpu = \"arm64\"\n"
+                # ARM64EC uses special Clang target and linker flags
+                cflags = ['--target=arm64ec-pc-windows-msvc', mt_flag]
+                gn_args += f"extra_cflags = {gn_array(cflags)}\n"
+                gn_args += f"extra_ldflags = {gn_array(['/MACHINE:ARM64EC'])}\n"
+                # Disable x86 SIMD instructions for ARM64EC
+                gn_args += "skia_use_sse2 = false\n"
+                gn_args += "skia_use_sse3 = false\n"
+                gn_args += "skia_use_ssse3 = false\n"
+                gn_args += "skia_use_sse41 = false\n"
+                gn_args += "skia_use_sse42 = false\n"
+                gn_args += "skia_use_avx = false\n"
+                gn_args += "skia_use_avx2 = false\n"
+                # Disable Dawn for ARM64EC for now (CMake issues with ARM64 Windows)
+                gn_args += "skia_use_dawn = false\n"
+                gn_args += "skia_enable_graphite = false\n"
+            else:
+                # x64 or Win32
+                gn_args += f"target_cpu = \"{'x86' if arch == 'Win32' else 'x64'}\"\n"
+                gn_args += f"extra_cflags = {gn_array([mt_flag])}\n"
+
+                # If cross-compiling from ARM64 host to x64, disable CPU-specific optimizations
+                if is_arm64_host:
+                    colored_print("ARM64 host detected. Disabling x86-specific CPU optimizations for cross-compile...", Colors.WARNING)
+                    gn_args += "skia_enable_ssse3 = false\n"
+                    gn_args += "skia_enable_sse42 = false\n"
+                    gn_args += "skia_enable_avx = false\n"
+                    gn_args += "skia_enable_avx2 = false\n"
+                    gn_args += "skia_enable_hsw = false\n"
+                    gn_args += "skia_enable_f16c = false\n"
+                    gn_args += "skia_enable_popcnt = false\n"
+
+            gn_args += "clang_win = \"C:\\\\Program Files\\\\LLVM\"\n"
+            gn_args += "script_executable = \"python\"\n"
         elif self.platform == "linux":
             gn_args += f"target_cpu = \"{'arm64' if arch == 'arm64' else 'x64'}\"\n"
         elif self.platform == "wasm":
@@ -476,20 +588,80 @@ class SkiaBuildScript:
         colored_print(f"Generating gn args for {self.platform} {arch} ({self.variant}) settings:", Colors.OKBLUE)
         colored_print(f"{gn_args}", Colors.OKGREEN)
 
-        subprocess.run(["./bin/gn", "gen", str(output_dir), f"--args={gn_args}"], check=True)
+        # Use platform-specific path to gn
+        if sys.platform.startswith('win'):
+            gn_path = SKIA_SRC_DIR / "bin" / "gn.exe"
+        else:
+            gn_path = SKIA_SRC_DIR / "bin" / "gn"
+
+        if not gn_path.exists():
+            colored_print(f"Error: gn executable not found at {gn_path}", Colors.FAIL)
+            sys.exit(1)
+
+        result = subprocess.run([str(gn_path), "gen", str(output_dir), f"--args={gn_args}"],
+                               check=False, capture_output=True, text=True)
+        if result.returncode != 0:
+            colored_print(f"Error running gn gen:", Colors.FAIL)
+            colored_print(f"stdout: {result.stdout}", Colors.WARNING)
+            colored_print(f"stderr: {result.stderr}", Colors.WARNING)
+            sys.exit(1)
+
+    def find_ninja(self):
+        """Find or download ninja executable for Windows."""
+        if not sys.platform.startswith('win'):
+            return "ninja"
+
+        # Look for ninja in depot_tools
+        ninja_depot = DEPOT_TOOLS_PATH / "ninja.exe"
+        if ninja_depot.exists():
+            return str(ninja_depot)
+
+        # Check if ninja is already downloaded to TMP_DIR
+        ninja_tmp = TMP_DIR / "ninja.exe"
+        if not ninja_tmp.exists():
+            # Download ninja from GitHub releases
+            colored_print("Ninja not found, downloading it...", Colors.WARNING)
+            import urllib.request
+            import zipfile
+
+            TMP_DIR.mkdir(parents=True, exist_ok=True)
+            ninja_zip = TMP_DIR / "ninja.zip"
+            ninja_url = "https://github.com/ninja-build/ninja/releases/download/v1.11.1/ninja-win.zip"
+
+            colored_print(f"Downloading ninja from {ninja_url}...", Colors.OKBLUE)
+            urllib.request.urlretrieve(ninja_url, ninja_zip)
+
+            # Extract to temp directory
+            with zipfile.ZipFile(ninja_zip, 'r') as zip_ref:
+                zip_ref.extractall(TMP_DIR)
+
+            ninja_zip.unlink()  # Remove zip file
+            colored_print(f"Ninja extracted to {ninja_tmp}", Colors.OKGREEN)
+
+        # Copy ninja to depot_tools so Dawn CMake can find it
+        if ninja_tmp.exists() and not ninja_depot.exists():
+            import shutil as sh
+            sh.copy2(ninja_tmp, ninja_depot)
+            colored_print(f"Copied ninja.exe to {ninja_depot}", Colors.OKCYAN)
+
+        return str(ninja_depot) if ninja_depot.exists() else str(ninja_tmp)
 
     def build_skia(self, arch: str):
         output_dir = TMP_DIR / f"{self.platform}_{self.config}_{arch}_{self.variant}"
-        
+
         # Get the list of libraries for the current platform
         libs_to_build = LIBS[self.platform]
-        
+
         # On Windows, ninja expects targets without the .lib extension
         if self.platform == "win":
             libs_to_build = [lib[:-4] if lib.endswith('.lib') else lib for lib in libs_to_build]
-        
+
+        # Find ninja executable
+        ninja_exe = self.find_ninja()
+        colored_print(f"Using ninja: {ninja_exe}", Colors.OKCYAN)
+
         # Construct the ninja command with all library targets
-        ninja_command = ["ninja", "-C", str(output_dir)] + libs_to_build
+        ninja_command = [ninja_exe, "-C", str(output_dir)] + libs_to_build
 
         # Run the ninja command
         try:

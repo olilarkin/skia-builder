@@ -104,6 +104,14 @@ LIBS = {
     ]
 }
 
+# Additional libraries for GPU variant (Dawn)
+GPU_LIBS = {
+    "mac": ["libdawn_combined.a"],
+    "ios": [],  # iOS uses Metal directly
+    "win": ["dawn_combined.lib"],
+    "wasm": [],  # WASM uses browser WebGPU
+}
+
 # Directories to package
 PACKAGE_DIRS = [
     "include",
@@ -169,12 +177,10 @@ skia_enable_skparagraph = true
 
 # Platform-specific GN args
 PLATFORM_GN_ARGS = {
-    "mac": f"""
+    "mac": """
     skia_use_metal = true
     skia_use_dawn = true
     target_os = "mac"
-    extra_cflags = ["-mmacosx-version-min={MAC_MIN_VERSION}"]
-    extra_asmflags = ["-mmacosx-version-min={MAC_MIN_VERSION}"]
     extra_cflags_c = ["-Wno-error"]
     """,
 
@@ -250,12 +256,10 @@ skia_use_vulkan = false
 
 # Platform-specific CPU-only GN args
 PLATFORM_GN_ARGS_CPU = {
-    "mac": f"""
+    "mac": """
     skia_use_metal = false
     skia_use_dawn = false
     target_os = "mac"
-    extra_cflags = ["-mmacosx-version-min={MAC_MIN_VERSION}"]
-    extra_asmflags = ["-mmacosx-version-min={MAC_MIN_VERSION}"]
     extra_cflags_c = ["-Wno-error"]
     """,
 
@@ -488,6 +492,21 @@ class SkiaBuildScript:
             else:
                 colored_print(f"Warning: {lib} not found in {src_dir}", Colors.WARNING)
 
+        # Copy GPU-specific libraries (Dawn) for GPU variant
+        if self.variant == "gpu" and self.platform in GPU_LIBS:
+            for lib in GPU_LIBS[self.platform]:
+                # Dawn combined library is in cmake_dawn subdirectory
+                src_file = src_dir / "cmake_dawn" / lib
+                if not src_file.exists():
+                    # Try alternative location
+                    src_file = src_dir / lib
+                dest_file = dest_dir / lib
+                if src_file.exists():
+                    shutil.copy2(str(src_file), str(dest_file))
+                    colored_print(f"Copied {lib} (Dawn) to {dest_dir}", Colors.OKGREEN)
+                else:
+                    colored_print(f"Warning: Dawn library {lib} not found", Colors.WARNING)
+
     # Lipo different architectures into a universal binary
     def create_universal_binary(self):
         colored_print('Creating universal files...', Colors.OKBLUE)
@@ -495,11 +514,29 @@ class SkiaBuildScript:
         dest_dir = lib_dir / self.config
         dest_dir.mkdir(parents=True, exist_ok=True)
 
+        # Combine Skia libraries
         for lib in LIBS[self.platform]:
             input_libs = [str(lib_dir / self.config / arch / lib) for arch in ["x86_64", "arm64"]]
             output_lib = str(dest_dir / lib)
             subprocess.run(["lipo", "-create"] + input_libs + ["-output", output_lib], check=True)
             colored_print(f"Created universal file: {lib}", Colors.OKGREEN)
+
+        # Combine Dawn libraries for GPU variant
+        if self.variant == "gpu" and "mac" in GPU_LIBS:
+            for lib in GPU_LIBS["mac"]:
+                input_libs = []
+                for arch in ["x86_64", "arm64"]:
+                    lib_path = lib_dir / self.config / arch / lib
+                    if lib_path.exists():
+                        input_libs.append(str(lib_path))
+                if len(input_libs) == 2:
+                    output_lib = str(dest_dir / lib)
+                    subprocess.run(["lipo", "-create"] + input_libs + ["-output", output_lib], check=True)
+                    colored_print(f"Created universal file: {lib} (Dawn)", Colors.OKGREEN)
+                elif len(input_libs) == 1:
+                    # Only one arch available, just copy it
+                    shutil.copy2(input_libs[0], str(dest_dir / lib))
+                    colored_print(f"Copied single-arch file: {lib} (Dawn)", Colors.WARNING)
 
         # Remove architecture-specific folders
         shutil.rmtree(lib_dir / self.config / "x86_64", ignore_errors=True)
@@ -584,13 +621,39 @@ class SkiaBuildScript:
                         if file.endswith('.h'):
                             src_file = Path(root) / file
                             rel_path = src_file.relative_to(SKIA_SRC_DIR)
-                            
+
                             # Check if the file is in an excluded directory
                             if not any(exclude in rel_path.parts for exclude in DONT_PACKAGE):
                                 dest_file = dest_dir / rel_path
                                 dest_file.parent.mkdir(parents=True, exist_ok=True)
                                 shutil.copy2(src_file, dest_file)
                                 # print(f"Copied {rel_path} to {dest_file}")
+
+    def package_generated_dawn_headers(self, build_dir, dest_dir):
+        """Copy generated Dawn headers from build output to package."""
+        gen_include_dir = build_dir / "gen" / "third_party" / "dawn" / "include"
+
+        # Copy dawn/*.h (webgpu.h, webgpu_cpp.h, etc.)
+        gen_dawn_dir = gen_include_dir / "dawn"
+        if gen_dawn_dir.exists():
+            colored_print(f"Packaging generated Dawn headers from {gen_dawn_dir}...", Colors.OKBLUE)
+            dest_dawn_dir = dest_dir / "dawn"
+            dest_dawn_dir.mkdir(parents=True, exist_ok=True)
+            for file in gen_dawn_dir.glob("*.h"):
+                shutil.copy2(file, dest_dawn_dir / file.name)
+                colored_print(f"  Copied dawn/{file.name}", Colors.OKCYAN)
+        else:
+            colored_print(f"Warning: Generated Dawn headers not found at {gen_dawn_dir}", Colors.WARNING)
+
+        # Copy webgpu/*.h (webgpu_cpp_chained_struct.h, etc.)
+        gen_webgpu_dir = gen_include_dir / "webgpu"
+        if gen_webgpu_dir.exists():
+            colored_print(f"Packaging generated WebGPU headers from {gen_webgpu_dir}...", Colors.OKBLUE)
+            dest_webgpu_dir = dest_dir / "webgpu"
+            dest_webgpu_dir.mkdir(parents=True, exist_ok=True)
+            for file in gen_webgpu_dir.glob("*.h"):
+                shutil.copy2(file, dest_webgpu_dir / file.name)
+                colored_print(f"  Copied webgpu/{file.name}", Colors.OKCYAN)
 
 
 #     def create_swift_package(self):
@@ -785,6 +848,13 @@ class SkiaBuildScript:
             self.create_xcframework(with_headers=True)
         else:
             self.package_headers(BASE_DIR / "include")
+
+        # Copy generated Dawn headers (for Graphite WebGPU backend)
+        if self.variant == "gpu":
+            # Use the first arch's build dir for generated headers (they're the same across archs)
+            first_arch = self.archs[0]
+            build_dir = TMP_DIR / f"{self.platform}_{self.config}_{first_arch}_{self.variant}"
+            self.package_generated_dawn_headers(build_dir, BASE_DIR / "include")
 
         self.write_gn_args_summary()
 

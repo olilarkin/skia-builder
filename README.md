@@ -51,6 +51,8 @@ ulimit -n 2048
 
 in order to increase the number of files that can be opened at once.
 
+Note: macOS builds target macOS 11+ (Big Sur). This is hardcoded in Skia's `gn/skia/BUILD.gn` via the `-target` compiler flag.
+
 ### Build for macOS universal (arm64 & x86_64 intel)
 
 ```bash

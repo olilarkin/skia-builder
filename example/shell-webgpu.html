@@ -1,0 +1,277 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+    <title>Skia Graphite WebGPU Example</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background: #f0f0f0;
+        }
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+        }
+        h1 {
+            color: #333;
+            margin-bottom: 20px;
+        }
+        #status {
+            padding: 10px 15px;
+            margin-bottom: 20px;
+            border-radius: 5px;
+            font-weight: 500;
+        }
+        #status.loading {
+            background: #fff3cd;
+            color: #856404;
+            border: 1px solid #ffc107;
+        }
+        #status.success {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #28a745;
+        }
+        #status.error {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #dc3545;
+        }
+        #canvas-container {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        canvas {
+            display: block;
+            border: 1px solid #ddd;
+        }
+        #output {
+            margin-top: 20px;
+            padding: 15px;
+            background: #1e1e1e;
+            color: #ddd;
+            font-family: 'Consolas', 'Monaco', monospace;
+            font-size: 12px;
+            border-radius: 5px;
+            max-height: 200px;
+            overflow-y: auto;
+        }
+        #output .error {
+            color: #ff6b6b;
+        }
+        #output .info {
+            color: #4dabf7;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Skia Graphite WebGPU Example</h1>
+        <div id="status" class="loading">Initializing WebGPU...</div>
+        <div id="canvas-container">
+            <canvas id="canvas" width="800" height="600"></canvas>
+        </div>
+        <div id="output"></div>
+    </div>
+
+    <script type="text/javascript">
+        // Output logging functions
+        const output = document.getElementById('output');
+        const statusEl = document.getElementById('status');
+
+        function log(msg, type = '') {
+            const line = document.createElement('div');
+            if (type) line.className = type;
+            line.textContent = msg;
+            output.appendChild(line);
+            output.scrollTop = output.scrollHeight;
+            console.log(msg);
+        }
+
+        function setStatus(msg, type) {
+            statusEl.textContent = msg;
+            statusEl.className = type;
+        }
+
+        // WebGPU initialization - returns promise resolving to device
+        async function initWebGPU() {
+            log('Checking for WebGPU support...', 'info');
+
+            if (!navigator.gpu) {
+                throw new Error('WebGPU is not supported in this browser. Please use Chrome 113+ or Edge 113+.');
+            }
+            log('WebGPU is available');
+
+            log('Requesting GPU adapter...', 'info');
+            const adapter = await navigator.gpu.requestAdapter({
+                powerPreference: 'high-performance'
+            });
+            if (!adapter) {
+                throw new Error('Failed to get WebGPU adapter. Your GPU may not be supported.');
+            }
+            log('Got GPU adapter: ' + (adapter.name || 'unnamed'));
+
+            // Log adapter limits
+            log('Max buffer size: ' + adapter.limits.maxBufferSize, 'info');
+            log('Max texture dimension: ' + adapter.limits.maxTextureDimension2D, 'info');
+
+            log('Requesting GPU device...', 'info');
+
+            // Request device with maximum limits for Graphite compatibility
+            const requiredLimits = {};
+            for (const key in adapter.limits) {
+                if (typeof adapter.limits[key] === 'number') {
+                    requiredLimits[key] = adapter.limits[key];
+                }
+            }
+
+            log('Requesting max limits from adapter', 'info');
+
+            // Get available features
+            const availableFeatures = [];
+            for (const feature of adapter.features) {
+                availableFeatures.push(feature);
+            }
+            log('Available features: ' + availableFeatures.join(', '), 'info');
+
+            const device = await adapter.requestDevice({
+                requiredFeatures: [],
+                requiredLimits: requiredLimits
+            });
+            if (!device) {
+                throw new Error('Failed to get WebGPU device.');
+            }
+            log('Got GPU device');
+
+            // Log device limits
+            log('Device maxBufferSize: ' + device.limits.maxBufferSize, 'info');
+
+            // Test buffer creation with mappedAtCreation
+            try {
+                const testBuffer = device.createBuffer({
+                    size: 256,
+                    usage: GPUBufferUsage.COPY_SRC | GPUBufferUsage.MAP_WRITE,
+                    mappedAtCreation: true
+                });
+                const mapped = testBuffer.getMappedRange();
+                if (mapped) {
+                    log('Test buffer mappedAtCreation: OK (got ' + mapped.byteLength + ' bytes)', 'info');
+                } else {
+                    log('Test buffer mappedAtCreation: FAILED - getMappedRange returned null!', 'error');
+                }
+                testBuffer.unmap();
+                testBuffer.destroy();
+            } catch (e) {
+                log('Test buffer creation failed: ' + e.message, 'error');
+            }
+
+            // Handle device lost
+            device.lost.then((info) => {
+                log('WebGPU device was lost: ' + info.message, 'error');
+                setStatus('GPU device lost: ' + info.message, 'error');
+            });
+
+            // Handle uncaptured errors
+            device.onuncapturederror = (event) => {
+                log('WebGPU error: ' + event.error.message, 'error');
+            };
+
+            // DEBUG: Wrap createBuffer to trace calls from WASM
+            const originalCreateBuffer = device.createBuffer.bind(device);
+            let bufferCount = 0;
+            device.createBuffer = function(descriptor) {
+                bufferCount++;
+                const id = bufferCount;
+                log('[DEBUG] createBuffer #' + id + ': size=' + descriptor.size +
+                    ', usage=' + descriptor.usage +
+                    ', mappedAtCreation=' + descriptor.mappedAtCreation, 'info');
+                const buffer = originalCreateBuffer(descriptor);
+
+                // Log buffer object for debugging
+                if (descriptor.mappedAtCreation) {
+                    log('[DEBUG] Buffer #' + id + ' created with mappedAtCreation=true', 'info');
+                }
+                return buffer;
+            };
+            log('[DEBUG] Wrapped device.createBuffer for tracing', 'info');
+
+            return device;
+        }
+
+        // Define Module SYNCHRONOUSLY before Emscripten script loads
+        // This is critical - Module must exist before the Emscripten script runs
+        var Module = {
+            // Will be set after WebGPU init
+            preinitializedWebGPUDevice: null,
+
+            // Canvas reference
+            canvas: document.getElementById('canvas'),
+
+            // Print functions for stdout/stderr
+            print: function(text) {
+                log(text);
+            },
+            printErr: function(text) {
+                log(text, 'error');
+            },
+
+            // Runtime initialization callback
+            onRuntimeInitialized: function() {
+                log('WASM runtime initialized', 'info');
+                setStatus('Running Skia Graphite WebGPU...', 'success');
+            },
+
+            // Locate files
+            locateFile: function(path, prefix) {
+                return prefix + path;
+            },
+
+            // Handle module abort
+            onAbort: function(what) {
+                log('Module aborted: ' + what, 'error');
+                setStatus('Error: Module aborted', 'error');
+            },
+
+            // Use instantiateWasm to delay WASM loading until WebGPU is ready
+            instantiateWasm: function(imports, successCallback) {
+                log('instantiateWasm called, initializing WebGPU first...', 'info');
+                setStatus('Loading WASM module...', 'loading');
+
+                // Store reference to Module for use in callbacks
+                var self = this;
+
+                // Initialize WebGPU, then instantiate WASM
+                initWebGPU().then(function(device) {
+                    log('WebGPU initialized, setting preinitializedWebGPUDevice', 'info');
+                    // Set on both Module reference and window.Module to be safe
+                    self.preinitializedWebGPUDevice = device;
+                    window.Module.preinitializedWebGPUDevice = device;
+                    Module.preinitializedWebGPUDevice = device;
+                    log('preinitializedWebGPUDevice set: ' + (Module.preinitializedWebGPUDevice ? 'yes' : 'no'), 'info');
+
+                    // Now fetch and instantiate the WASM module
+                    log('Fetching WASM binary...', 'info');
+                    return WebAssembly.instantiateStreaming(fetch(Module.locateFile('example.wasm', '')), imports);
+                }).then(function(result) {
+                    log('WASM instantiated successfully', 'info');
+                    log('preinitializedWebGPUDevice check: ' + (Module.preinitializedWebGPUDevice ? 'yes' : 'no'), 'info');
+                    successCallback(result.instance, result.module);
+                }).catch(function(error) {
+                    log('Failed to initialize: ' + error.message, 'error');
+                    setStatus('Error: ' + error.message, 'error');
+                    console.error('Initialization error:', error);
+                });
+
+                // Return an empty object to indicate async instantiation
+                return {};
+            }
+        };
+    </script>
+    {{{ SCRIPT }}}
+</body>
+</html>

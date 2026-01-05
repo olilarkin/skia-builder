@@ -24,7 +24,8 @@ python3 build-skia.py mac                          # macOS universal (arm64 + x8
 python3 build-skia.py ios                          # iOS (arm64 + x86_64 simulator)
 python3 build-skia.py win                          # Windows x64
 python3 build-skia.py linux                        # Linux x64
-python3 build-skia.py wasm                         # WebAssembly
+python3 build-skia.py wasm                         # WebAssembly (CPU-only)
+python3 build-skia.py wasm -variant graphite       # WebAssembly with Graphite/WebGPU
 python3 build-skia.py xcframework                  # Apple XCFramework (macOS + iOS)
 
 # Options
@@ -32,6 +33,9 @@ python3 build-skia.py <platform> -config Debug    # Debug build (default: Releas
 python3 build-skia.py <platform> -branch chrome/m130  # Specific Skia branch
 python3 build-skia.py <platform> --shallow        # Shallow clone
 python3 build-skia.py <platform> -archs x86_64,arm64  # Specific architectures
+python3 build-skia.py <platform> -variant cpu     # CPU-only build (no GPU)
+python3 build-skia.py <platform> -variant gpu     # GPU build with Ganesh (default)
+python3 build-skia.py <platform> -variant graphite # GPU build with Graphite/WebGPU (WASM only)
 
 # Windows (use py -3 or the build-win.sh helper)
 py -3 build-skia.py win -config Release -branch chrome/m130
@@ -46,11 +50,14 @@ py -3 build-skia.py win -archs x64,arm64            # Build both x64 and ARM64
 ```bash
 make skia-mac           # Build macOS libraries
 make skia-ios           # Build iOS libraries
-make skia-wasm          # Build WASM libraries
+make skia-wasm          # Build WASM libraries (CPU-only)
+make skia-wasm-graphite # Build WASM libraries with Graphite/WebGPU
 make skia-xcframework   # Build XCFramework
 make example-mac        # Build and run example (./example/build-mac/example)
-make example-wasm       # Build WASM example
+make example-wasm       # Build WASM example (CPU-only)
+make example-wasm-graphite # Build WASM example with Graphite/WebGPU
 make serve-wasm         # Serve WASM example on localhost:8080
+make serve-wasm-graphite # Serve Graphite/WebGPU WASM example on localhost:8080
 make clean              # Remove build directory
 ```
 
@@ -77,7 +84,8 @@ build/
 │       ├── arm64/     # Windows ARM64
 │       └── arm64ec/   # Windows ARM64EC
 ├── linux-gpu/lib/     # Linux libraries
-├── wasm-gpu/lib/      # WASM libraries
+├── wasm-cpu/lib/      # WASM libraries (CPU-only)
+├── wasm-graphite/lib/ # WASM libraries (Graphite/WebGPU)
 └── xcframework/       # XCFramework output
 ```
 
@@ -85,6 +93,32 @@ build/
 - `USE_LIBGRAPHEME` constant (line 81) toggles between libgrapheme and ICU for Unicode
 - `MAC_MIN_VERSION` / `IOS_MIN_VERSION` set deployment targets
 - `EXCLUDE_DEPS` lists Skia dependencies to skip during sync
+
+## Graphite/WebGPU WASM Builds
+
+**Important**: Building Skia with Graphite/WebGPU for WASM requires careful version matching:
+
+1. **Use stable chrome/* branches** (e.g., `chrome/m144`) instead of `main`. The main branch often has Dawn/Tint API mismatches that cause build failures. The CI workflow uses `chrome/m144` by default.
+
+2. **Use Skia's bundled Emscripten** (3.1.44) for building examples, not a newer system Emscripten. The WebGPU API changed significantly between Emscripten versions:
+   - Skia's Emscripten 3.1.44: `-sUSE_WEBGPU=1`, `emscripten/html5_webgpu.h`, SwapChain API
+   - Newer Emscripten 4.0+: `--use-port=emdawnwebgpu`, `webgpu/webgpu.h`, Surface configuration API
+
+3. **Build command** (uses CI default branch):
+   ```bash
+   python3 build-skia.py wasm -variant graphite -config Release
+   ```
+
+4. **Build example using Skia's Emscripten**:
+   ```bash
+   SKIA_EMSDK="build/src/skia/third_party/externals/emsdk"
+   export EM_CONFIG="$SKIA_EMSDK/.emscripten"
+   export PATH="$SKIA_EMSDK/upstream/emscripten:$SKIA_EMSDK/upstream/bin:$SKIA_EMSDK/node/16.20.0_64bit/bin:$PATH"
+   cd example/build-wasm-graphite
+   cmake --build .
+   ```
+
+See `docs/GRAPHITE_WEBGPU_WASM.md` for comprehensive documentation on API usage, troubleshooting, and browser requirements.
 
 ## CI
 

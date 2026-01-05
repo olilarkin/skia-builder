@@ -4,6 +4,9 @@ project(SkiaTest)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+# Build options
+option(USE_GRAPHITE "Build with Graphite/WebGPU support (WASM only)" OFF)
+
 # Platform-specific settings
 if(EMSCRIPTEN)
     # Emscripten-specific settings
@@ -52,7 +55,11 @@ set(INCLUDE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../build/include)
 
 # Configure library paths based on platform and configuration
 if(EMSCRIPTEN)
-    set(LIB_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../build/wasm/lib/${CMAKE_BUILD_TYPE})
+    if(USE_GRAPHITE)
+        set(LIB_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../build/wasm-graphite/lib/${CMAKE_BUILD_TYPE})
+    else()
+        set(LIB_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../build/wasm-cpu/lib/${CMAKE_BUILD_TYPE})
+    endif()
     set(SKIA_LIB ${LIB_DIR}/libskia.a)
 elseif(WIN32)
     set(LIB_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../build/win/lib/${CMAKE_BUILD_TYPE}/${ARCH_DIR})
@@ -75,13 +82,21 @@ message(STATUS "SKIA_LIB path: ${SKIA_LIB}")
 
 include_directories(${INCLUDE_DIR})
 
-add_executable(example main.cpp)
+# Select source file based on build variant
+if(EMSCRIPTEN AND USE_GRAPHITE)
+    add_executable(example main-webgpu.cpp)
+    message(STATUS "Building with Graphite/WebGPU support")
+else()
+    add_executable(example main.cpp)
+    message(STATUS "Building CPU-only example")
+endif()
 
 # Link libraries
 target_link_libraries(example ${SKIA_LIB})
 
 # Platform-specific linking
 if(EMSCRIPTEN)
+    # Common WASM linker options
     target_link_options(example PRIVATE
         "-sALLOW_MEMORY_GROWTH=1"
         "-sNODEJS_CATCH_EXIT=0"
@@ -91,12 +106,41 @@ if(EMSCRIPTEN)
         "-sINITIAL_MEMORY=128MB"
         "-sWASM=1"
         "-sSTRICT=1"
-        "-f wasm-exceptions"
         "-sERROR_ON_UNDEFINED_SYMBOLS=0"
-        "-sFORCE_FILESYSTEM=1"
-        "-sEXPORTED_RUNTIME_METHODS=['FS','ccall','cwrap']"
-        "--shell-file=${CMAKE_CURRENT_SOURCE_DIR}/shell.html"
     )
+
+    if(USE_GRAPHITE)
+        # Graphite/WebGPU specific compile and linker options
+        target_compile_definitions(example PRIVATE
+            SK_GRAPHITE
+            SK_DAWN
+        )
+        # USE_WEBGPU must be set as compile option for headers to be available
+        target_compile_options(example PRIVATE
+            "-sUSE_WEBGPU=1"
+        )
+        target_link_options(example PRIVATE
+            # WebGPU support
+            "-sUSE_WEBGPU=1"
+            "-sUSE_WEBGL2=0"
+            # ASYNCIFY required for WebGPU async operations
+            "-sASYNCIFY"
+            "-sASYNCIFY_STACK_SIZE=65536"
+            # Closure compiler incompatible with ASYNCIFY
+            "--closure=0"
+            # Enable assertions for better debugging
+            "-sASSERTIONS=1"
+            # Use WebGPU shell
+            "--shell-file=${CMAKE_CURRENT_SOURCE_DIR}/shell-webgpu.html"
+        )
+    else()
+        # CPU-only specific linker options
+        target_link_options(example PRIVATE
+            "-sFORCE_FILESYSTEM=1"
+            "-sEXPORTED_RUNTIME_METHODS=['FS','ccall','cwrap']"
+            "--shell-file=${CMAKE_CURRENT_SOURCE_DIR}/shell.html"
+        )
+    endif()
 elseif(APPLE)
     target_link_libraries(example 
         "-framework CoreFoundation"

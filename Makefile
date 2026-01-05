@@ -9,6 +9,7 @@ SKIA_BUILDER = python3 build-skia.py
 BUILD_DIR = $(shell pwd)/build
 EXAMPLE_BUILD_DIR = $(shell pwd)/example/build-mac
 WASM_EXAMPLE_BUILD_DIR = $(shell pwd)/example/build-wasm
+WASM_GRAPHITE_BUILD_DIR = $(shell pwd)/example/build-wasm-graphite
 
 # Skia paths
 SKIA_SRC_DIR = $(BUILD_DIR)/src/skia
@@ -16,7 +17,7 @@ EMSDK_PATH = $(SKIA_SRC_DIR)/third_party/externals/emsdk
 
 HTTP_PORT = 8080
 
-.PHONY: skia-mac skia-ios skia-wasm clean example-mac example-wasm serve-wasm skia-xcframework skia-spm
+.PHONY: skia-mac skia-ios skia-wasm skia-wasm-graphite clean example-mac example-wasm example-wasm-graphite serve-wasm serve-wasm-graphite skia-xcframework skia-spm
 
 # Default target
 all: skia-mac example-mac
@@ -29,7 +30,11 @@ skia-ios:
 	$(SKIA_BUILDER) ios
 
 skia-wasm:
-	$(SKIA_BUILDER) wasm
+	$(SKIA_BUILDER) wasm -variant cpu
+
+# Build Skia with Graphite/WebGPU for WebAssembly
+skia-wasm-graphite:
+	$(SKIA_BUILDER) wasm -variant graphite
 
 # Build XCFramework combining iOS and macOS libraries
 skia-xcframework:
@@ -52,6 +57,19 @@ example-wasm: skia-wasm
 serve-wasm: example-wasm
 	source $(EMSDK_PATH)/emsdk_env.sh && \
 	cd $(WASM_EXAMPLE_BUILD_DIR) && \
+	emrun --port $(HTTP_PORT) --browser chrome example.html
+
+# Build Graphite/WebGPU WebAssembly example
+example-wasm-graphite: skia-wasm-graphite
+	source $(EMSDK_PATH)/emsdk_env.sh && \
+	mkdir -p $(WASM_GRAPHITE_BUILD_DIR) && \
+	emcmake cmake $(shell pwd)/example/CMakeLists.txt -B $(WASM_GRAPHITE_BUILD_DIR) -DCMAKE_BUILD_TYPE=Release -DUSE_GRAPHITE=ON && \
+	cmake --build $(WASM_GRAPHITE_BUILD_DIR)
+
+# Serve Graphite/WebGPU WebAssembly example
+serve-wasm-graphite: example-wasm-graphite
+	source $(EMSDK_PATH)/emsdk_env.sh && \
+	cd $(WASM_GRAPHITE_BUILD_DIR) && \
 	emrun --port $(HTTP_PORT) --browser chrome example.html
 
 # Clean build artifacts

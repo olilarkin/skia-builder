@@ -1,0 +1,77 @@
+# Patch for Emscripten library_webgpu.js
+# Applies to: build/src/skia/third_party/externals/emsdk/upstream/emscripten/src/library_webgpu.js
+# Tested with: Emscripten 3.1.44 bundled with Skia chrome/m132
+#
+# This patch fixes several issues with Skia Graphite/WebGPU on WASM:
+# 1. WGPU_WHOLE_MAP_SIZE sentinel value handling (SIZE_MAX sign-extends to -1 in JS)
+# 2. WGPU_WHOLE_SIZE sentinel value handling for setVertexBuffer/setIndexBuffer
+# 3. wgpuSwapChainPresent should be a no-op (browsers auto-present)
+
+--- a/library_webgpu.js
++++ b/library_webgpu.js
+@@ -1842,7 +1842,8 @@ var LibraryWebGPU = {
+
+     if (size === 0) warnOnce('getMappedRange size=0 no longer means WGPU_WHOLE_MAP_SIZE');
+
+-    if (size === {{{ gpu.WHOLE_MAP_SIZE }}}) size = undefined;
++    // Fix: Also check for -1 because SIZE_MAX (0xFFFFFFFF) can be interpreted as signed -1
++    if (size === {{{ gpu.WHOLE_MAP_SIZE }}} || size === -1) size = undefined;
+
+     var mapped;
+     try {
+@@ -1876,7 +1877,8 @@ var LibraryWebGPU = {
+
+     if (size === 0) warnOnce('getMappedRange size=0 no longer means WGPU_WHOLE_MAP_SIZE');
+
+-    if (size === {{{ gpu.WHOLE_MAP_SIZE }}}) size = undefined;
++    // Fix: Also check for -1 because SIZE_MAX (0xFFFFFFFF) can be interpreted as signed -1
++    if (size === {{{ gpu.WHOLE_MAP_SIZE }}} || size === -1) size = undefined;
+
+     if (bufferWrapper.mapMode !== {{{ gpu.MapMode.Write }}}) {
+ #if ASSERTIONS
+@@ -1917,7 +1919,8 @@ var LibraryWebGPU = {
+     bufferWrapper.onUnmap = [];
+     var buffer = bufferWrapper.object;
+
+-    if (size === {{{ gpu.WHOLE_MAP_SIZE }}}) size = undefined;
++    // Fix: Also check for -1 because SIZE_MAX (0xFFFFFFFF) can be interpreted as signed -1
++    if (size === {{{ gpu.WHOLE_MAP_SIZE }}} || size === -1) size = undefined;
+
+     // `callback` takes (WGPUBufferMapAsyncStatus status, void * userdata)
+
+@@ -2144,7 +2147,10 @@ var LibraryWebGPU = {
+   },
+   wgpuRenderPassEncoderSetIndexBuffer: function(passId, bufferId, format, offset, size) {
+     var pass = WebGPU.mgrRenderPassEncoder.get(passId);
+-    pass["setIndexBuffer"](WebGPU.mgrBuffer.get(bufferId), WebGPU.IndexFormat[format], offset, size);
++    var buffer = WebGPU.mgrBuffer.get(bufferId);
++    // Fix: Handle WGPU_WHOLE_SIZE sentinel value (-1 when sign-extended from 64-bit)
++    if (size === -1 || size === 0xffffffff || size === 0xffffffffffffffffn) size = undefined;
++    pass["setIndexBuffer"](buffer, WebGPU.IndexFormat[format], offset, size);
+   },
+   wgpuRenderPassEncoderSetPipeline: function(passId, pipelineId) {
+     var pass = WebGPU.mgrRenderPassEncoder.get(passId);
+@@ -2168,7 +2174,10 @@ var LibraryWebGPU = {
+   },
+   wgpuRenderPassEncoderSetVertexBuffer: function(passId, slot, bufferId, offset, size) {
+     var pass = WebGPU.mgrRenderPassEncoder.get(passId);
+-    pass["setVertexBuffer"](slot, WebGPU.mgrBuffer.get(bufferId), offset, size);
++    var buffer = WebGPU.mgrBuffer.get(bufferId);
++    // Fix: Handle WGPU_WHOLE_SIZE sentinel value (-1 when sign-extended from 64-bit)
++    if (size === -1 || size === 0xffffffff || size === 0xffffffffffffffffn) size = undefined;
++    pass["setVertexBuffer"](slot, buffer, offset, size);
+   },
+
+   wgpuRenderPassEncoderDraw: function(passId, vertexCount, instanceCount, firstVertex, firstInstance) {
+@@ -2631,9 +2640,9 @@ var LibraryWebGPU = {
+     return WebGPU.mgrTexture.create(texture);
+   },
+   wgpuSwapChainPresent: function() {
+-#if ASSERTIONS
+-    abort("wgpuSwapChainPresent is unsupported (use requestAnimationFrame via html5.h instead)");
+-#endif
++    // No-op: Browsers auto-present at the end of each requestAnimationFrame.
++    // When using emscripten_set_main_loop, the browser handles presentation automatically.
+   },
+
+   // wgpuGetProcAddress

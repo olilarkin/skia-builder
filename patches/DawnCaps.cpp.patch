@@ -1,0 +1,24 @@
+# Patch for Skia DawnCaps.cpp
+# Applies to: build/src/skia/src/gpu/graphite/dawn/DawnCaps.cpp
+# Tested with: Skia chrome/m132
+#
+# This patch disables async pipeline creation on Emscripten/WASM.
+# Emscripten's WebGPU bindings don't properly support CreateRenderPipelineAsync,
+# so we force synchronous pipeline creation (the browser handles async internally).
+
+--- a/src/gpu/graphite/dawn/DawnCaps.cpp
++++ b/src/gpu/graphite/dawn/DawnCaps.cpp
+@@ -515,6 +515,13 @@ void DawnCaps::initCaps(const DawnBackendContext& backendContext, const ContextO
+         fAllowScopedErrorChecks = false;
+     }
+
++#if defined(__EMSCRIPTEN__)
++    // For WASM/Emscripten, always disable async pipeline creation even if fTick is set.
++    // CreateRenderPipelineAsync is not properly supported in Emscripten's WebGPU bindings.
++    // Using synchronous CreateRenderPipeline lets the browser handle async internally.
++    fUseAsyncPipelineCreation = false;
++    fAllowScopedErrorChecks = false;
++#endif
++
+     fFullCompressedUploadSizeMustAlignToBlockDims = true;
+ }

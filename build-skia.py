@@ -352,6 +352,64 @@ PLATFORM_GN_ARGS_CPU = {
     """
 }
 
+# Graphite/WebGPU GN args (for WASM Graphite builds)
+PLATFORM_GN_ARGS_GRAPHITE = {
+    "wasm": """
+    target_os = "wasm"
+    is_component_build = false
+    is_trivial_abi = true
+    werror = true
+
+    # Graphite/WebGPU configuration (critical)
+    skia_enable_ganesh = false
+    skia_enable_graphite = true
+    skia_use_dawn = true
+    skia_use_webgpu = true
+    skia_use_webgl = false
+    skia_use_gl = false
+    skia_use_angle = false
+    skia_use_vulkan = false
+
+    # Font configuration
+    skia_use_fontconfig = false
+    skia_use_freetype = true
+    skia_use_system_freetype2 = false
+    skia_enable_fontmgr_custom_directory = false
+    skia_enable_fontmgr_custom_embedded = true
+    skia_enable_fontmgr_custom_empty = true
+    skia_use_freetype_woff2 = true
+    skia_use_harfbuzz = true
+    skia_use_system_harfbuzz = false
+
+    # Image codecs
+    skia_use_dng_sdk = false
+    skia_use_expat = false
+    skia_use_libheif = false
+    skia_use_libjpeg_turbo_decode = true
+    skia_use_libjpeg_turbo_encode = false
+    skia_use_no_jpeg_encode = true
+    skia_use_libpng_decode = true
+    skia_use_libpng_encode = true
+    skia_use_libwebp_decode = true
+    skia_use_libwebp_encode = false
+    skia_use_no_webp_encode = true
+    skia_use_wuffs = true
+    skia_use_zlib = true
+
+    # Unicode
+    skia_use_icu = true
+    skia_use_client_icu = false
+    skia_use_icu4x = false
+
+    # Features
+    skia_use_lua = false
+    skia_use_piex = false
+    skia_build_for_debugger = false
+    skia_enable_skottie = true
+    skia_enable_skshaper = true
+    """
+}
+
 class SkiaBuildScript:
     def __init__(self):
         self.platform = None
@@ -389,8 +447,8 @@ class SkiaBuildScript:
         parser.add_argument("-config", choices=["Debug", "Release"], default="Release", help="Build configuration")
         parser.add_argument("-archs", help="Target architectures (comma-separated)")
         parser.add_argument("-branch", help="Skia Git branch to checkout", default="main")
-        parser.add_argument("-variant", choices=["cpu", "gpu"], default="gpu",
-                           help="Build variant: cpu (no GPU) or gpu (with Graphite/Dawn)")
+        parser.add_argument("-variant", choices=["cpu", "gpu", "graphite"], default="gpu",
+                           help="Build variant: cpu (no GPU), gpu (Ganesh), or graphite (Graphite/WebGPU)")
         parser.add_argument("--shallow", action="store_true", help="Perform a shallow clone of the Skia repository")
         parser.add_argument("--zip-all", action="store_true", 
                            help="Create a zip archive containing all platform libraries")
@@ -511,10 +569,17 @@ class SkiaBuildScript:
         if self.config == 'Debug':
             gn_args += f"is_debug = true\n"
         else:
-            # Use CPU or GPU platform-specific args based on variant
+            # Use CPU, GPU (Ganesh), or Graphite platform-specific args based on variant
             if self.variant == "cpu":
                 gn_args += PLATFORM_GN_ARGS_CPU[self.platform]
                 gn_args += CPU_ONLY_GN_ARGS
+            elif self.variant == "graphite":
+                # For graphite, use PLATFORM_GN_ARGS_GRAPHITE if available for this platform
+                if self.platform in PLATFORM_GN_ARGS_GRAPHITE:
+                    gn_args += PLATFORM_GN_ARGS_GRAPHITE[self.platform]
+                else:
+                    # Fallback to regular GPU args for platforms without graphite-specific config
+                    gn_args += PLATFORM_GN_ARGS[self.platform]
             else:
                 gn_args += PLATFORM_GN_ARGS[self.platform]
             gn_args += RELEASE_GN_ARGS
@@ -948,6 +1013,8 @@ class SkiaBuildScript:
     def generate_gn_args_summary(self, arch: str):
         if self.variant == "cpu":
             gn_args = BASIC_GN_ARGS + PLATFORM_GN_ARGS_CPU[self.platform] + CPU_ONLY_GN_ARGS
+        elif self.variant == "graphite" and self.platform in PLATFORM_GN_ARGS_GRAPHITE:
+            gn_args = BASIC_GN_ARGS + PLATFORM_GN_ARGS_GRAPHITE[self.platform]
         else:
             gn_args = BASIC_GN_ARGS + PLATFORM_GN_ARGS[self.platform]
         gn_args += RELEASE_GN_ARGS

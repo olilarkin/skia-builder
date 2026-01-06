@@ -548,7 +548,8 @@ class SkiaBuildScript:
             elif arch == "arm64ec":
                 gn_args += f"target_cpu = \"arm64\"\n"
                 # ARM64EC uses special Clang target and linker flags
-                cflags = ['--target=arm64ec-pc-windows-msvc', mt_flag]
+                # Also undefine x86 SIMD macros to prevent x86 intrinsic headers from being included
+                cflags = ['--target=arm64ec-pc-windows-msvc', mt_flag, '-U__SSE2__', '-U__SSE__', '-U__MMX__']
                 gn_args += f"extra_cflags = {gn_array(cflags)}\n"
                 gn_args += f"extra_ldflags = {gn_array(['/MACHINE:ARM64EC'])}\n"
                 # Disable x86 SIMD instructions for ARM64EC (both use and enable flags)

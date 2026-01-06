@@ -9,6 +9,11 @@ on:
         required: false
         type: boolean
         default: false
+      skia_branch:
+        description: 'Skia branch to build (e.g., chrome/m144, chrome/m132)'
+        required: false
+        type: string
+        default: 'chrome/m144'
 
 jobs:
   build-skia:
@@ -21,6 +26,9 @@ jobs:
           - os: ubuntu-latest
             platform: wasm
             variant: gpu
+          - os: ubuntu-latest
+            platform: wasm
+            variant: graphite
           - os: ubuntu-latest
             platform: linux
             variant: cpu
@@ -65,7 +73,7 @@ jobs:
             archs: arm64ec
     runs-on: ${{ matrix.os }}
     env:
-      SKIA_BRANCH: chrome/m144
+      SKIA_BRANCH: ${{ inputs.skia_branch || 'chrome/m144' }}
     outputs:
       skia_branch: ${{ env.SKIA_BRANCH }}
     steps:
@@ -179,6 +187,7 @@ jobs:
           files: |
             ./skia-build-wasm-cpu/skia-build-wasm-cpu.zip
             ./skia-build-wasm-gpu/skia-build-wasm-gpu.zip
+            ./skia-build-wasm-graphite/skia-build-wasm-graphite.zip
             ./skia-build-linux-cpu/skia-build-linux-cpu.zip
             ./skia-build-linux-gpu/skia-build-linux-gpu.zip
             ./skia-build-ios-cpu/skia-build-ios-cpu.zip

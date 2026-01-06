@@ -551,7 +551,7 @@ class SkiaBuildScript:
                 cflags = ['--target=arm64ec-pc-windows-msvc', mt_flag]
                 gn_args += f"extra_cflags = {gn_array(cflags)}\n"
                 gn_args += f"extra_ldflags = {gn_array(['/MACHINE:ARM64EC'])}\n"
-                # Disable x86 SIMD instructions for ARM64EC
+                # Disable x86 SIMD instructions for ARM64EC (both use and enable flags)
                 gn_args += "skia_use_sse2 = false\n"
                 gn_args += "skia_use_sse3 = false\n"
                 gn_args += "skia_use_ssse3 = false\n"
@@ -559,6 +559,15 @@ class SkiaBuildScript:
                 gn_args += "skia_use_sse42 = false\n"
                 gn_args += "skia_use_avx = false\n"
                 gn_args += "skia_use_avx2 = false\n"
+                # Also disable skia_enable_* flags to prevent x86 SIMD code compilation
+                gn_args += "skia_enable_ssse3 = false\n"
+                gn_args += "skia_enable_sse42 = false\n"
+                gn_args += "skia_enable_avx = false\n"
+                gn_args += "skia_enable_avx2 = false\n"
+                gn_args += "skia_enable_avx512 = false\n"
+                gn_args += "skia_enable_hsw = false\n"
+                gn_args += "skia_enable_f16c = false\n"
+                gn_args += "skia_enable_popcnt = false\n"
                 # Disable Dawn for ARM64EC for now (CMake issues with ARM64 Windows)
                 gn_args += "skia_use_dawn = false\n"
                 gn_args += "skia_enable_graphite = false\n"

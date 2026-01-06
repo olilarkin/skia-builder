@@ -55,22 +55,6 @@ jobs:
             platform: win
             variant: gpu
             archs: x64
-          - os: windows-latest
-            platform: win
-            variant: cpu
-            archs: arm64
-          - os: windows-latest
-            platform: win
-            variant: gpu
-            archs: arm64
-          - os: windows-latest
-            platform: win
-            variant: cpu
-            archs: arm64ec
-          - os: windows-latest
-            platform: win
-            variant: gpu
-            archs: arm64ec
     runs-on: ${{ matrix.os }}
     env:
       SKIA_BRANCH: ${{ inputs.skia_branch || 'chrome/m144' }}
@@ -194,10 +178,6 @@ jobs:
             ./skia-build-ios-gpu/skia-build-ios-gpu.zip
             ./skia-build-win-cpu-x64/skia-build-win-cpu-x64.zip
             ./skia-build-win-gpu-x64/skia-build-win-gpu-x64.zip
-            ./skia-build-win-cpu-arm64/skia-build-win-cpu-arm64.zip
-            ./skia-build-win-gpu-arm64/skia-build-win-gpu-arm64.zip
-            ./skia-build-win-cpu-arm64ec/skia-build-win-cpu-arm64ec.zip
-            ./skia-build-win-gpu-arm64ec/skia-build-win-gpu-arm64ec.zip
             ./skia-build-mac-cpu/skia-build-mac-cpu.zip
             ./skia-build-mac-gpu/skia-build-mac-gpu.zip
         env:

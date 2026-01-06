@@ -22,39 +22,7 @@ jobs:
         include:
           - os: ubuntu-latest
             platform: wasm
-            variant: cpu
-          - os: ubuntu-latest
-            platform: wasm
-            variant: gpu
-          - os: ubuntu-latest
-            platform: wasm
             variant: graphite
-          - os: ubuntu-latest
-            platform: linux
-            variant: cpu
-          - os: ubuntu-latest
-            platform: linux
-            variant: gpu
-          - os: macos-latest
-            platform: mac
-            variant: cpu
-          - os: macos-latest
-            platform: mac
-            variant: gpu
-          - os: macos-latest
-            platform: ios
-            variant: cpu
-          - os: macos-latest
-            platform: ios
-            variant: gpu
-          - os: windows-latest
-            platform: win
-            variant: cpu
-            archs: x64
-          - os: windows-latest
-            platform: win
-            variant: gpu
-            archs: x64
     runs-on: ${{ matrix.os }}
     env:
       SKIA_BRANCH: ${{ inputs.skia_branch || 'chrome/m144' }}
@@ -169,16 +137,6 @@ jobs:
           draft: false
           prerelease: ${{ inputs.test_mode }}
           files: |
-            ./skia-build-wasm-cpu/skia-build-wasm-cpu.zip
-            ./skia-build-wasm-gpu/skia-build-wasm-gpu.zip
             ./skia-build-wasm-graphite/skia-build-wasm-graphite.zip
-            ./skia-build-linux-cpu/skia-build-linux-cpu.zip
-            ./skia-build-linux-gpu/skia-build-linux-gpu.zip
-            ./skia-build-ios-cpu/skia-build-ios-cpu.zip
-            ./skia-build-ios-gpu/skia-build-ios-gpu.zip
-            ./skia-build-win-cpu-x64/skia-build-win-cpu-x64.zip
-            ./skia-build-win-gpu-x64/skia-build-win-gpu-x64.zip
-            ./skia-build-mac-cpu/skia-build-mac-cpu.zip
-            ./skia-build-mac-gpu/skia-build-mac-gpu.zip
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

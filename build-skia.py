@@ -548,8 +548,8 @@ class SkiaBuildScript:
             elif arch == "arm64ec":
                 gn_args += f"target_cpu = \"arm64\"\n"
                 # ARM64EC uses special Clang target and linker flags
-                # Force ARM CPU detection and disable x86 SIMD to use NEON code paths
-                cflags = ['--target=arm64ec-pc-windows-msvc', mt_flag, '-DSK_CPU_ARM64', '-DSK_ARM_HAS_NEON']
+                # Force SSE level to 0 and enable NEON to use ARM code paths instead of x86 SSE
+                cflags = ['--target=arm64ec-pc-windows-msvc', mt_flag, '-DSK_CPU_SSE_LEVEL=0', '-DSK_ARM_HAS_NEON']
                 gn_args += f"extra_cflags = {gn_array(cflags)}\n"
                 gn_args += f"extra_ldflags = {gn_array(['/MACHINE:ARM64EC'])}\n"
                 # Disable x86 SIMD instructions for ARM64EC (both use and enable flags)

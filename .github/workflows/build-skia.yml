@@ -58,11 +58,19 @@ jobs:
           - os: windows-latest
             platform: win
             variant: cpu
-            arch: ""
+            arch: x64
           - os: windows-latest
             platform: win
             variant: gpu
-            arch: ""
+            arch: x64
+          - os: windows-11-arm
+            platform: win
+            variant: cpu
+            arch: arm64
+          - os: windows-11-arm
+            platform: win
+            variant: gpu
+            arch: arm64
     runs-on: ${{ matrix.os }}
     env:
       SKIA_BRANCH: chrome/m144
@@ -97,7 +105,7 @@ jobs:
         with:
           version: "19.1.0"
           env: true
-  
+
       - name: Set Git default branch
         run: git config --global init.defaultBranch main
 
@@ -107,13 +115,13 @@ jobs:
           path: |
             build/tmp/depot_tools
             build/src/skia
-          key: ${{ runner.os }}-depot_tools-skia-${{ env.SKIA_BRANCH }}-${{ hashFiles('build-skia.py') }}
+          key: ${{ runner.os }}-${{ matrix.arch || 'default' }}-depot_tools-skia-${{ env.SKIA_BRANCH }}-${{ hashFiles('build-skia.py') }}
 
       # - name: Build Skia (Debug)
       #   if: ${{ !inputs.test_mode }}
       #   run: |
       #     python3 build-skia.py ${{ matrix.platform }} -config Debug --shallow -branch ${{ env.SKIA_BRANCH }}
-  
+
       - name: Build Skia (Release)
         if: ${{ !inputs.test_mode }}
         run: |
@@ -122,7 +130,7 @@ jobs:
             ARCH_ARG="-archs ${{ matrix.arch }}"
           fi
           python3 build-skia.py ${{ matrix.platform }} -variant ${{ matrix.variant }} -config Release --shallow -branch ${{ env.SKIA_BRANCH }} $ARCH_ARG
-  
+
       - name: Set archive name
         id: archive
         shell: bash
@@ -185,8 +193,10 @@ jobs:
             ./skia-build-linux-arm64-gpu/skia-build-linux-arm64-gpu.zip
             ./skia-build-ios-cpu/skia-build-ios-cpu.zip
             ./skia-build-ios-gpu/skia-build-ios-gpu.zip
-            ./skia-build-win-cpu/skia-build-win-cpu.zip
-            ./skia-build-win-gpu/skia-build-win-gpu.zip
+            ./skia-build-win-x64-cpu/skia-build-win-x64-cpu.zip
+            ./skia-build-win-x64-gpu/skia-build-win-x64-gpu.zip
+            ./skia-build-win-arm64-cpu/skia-build-win-arm64-cpu.zip
+            ./skia-build-win-arm64-gpu/skia-build-win-arm64-gpu.zip
             ./skia-build-mac-cpu/skia-build-mac-cpu.zip
             ./skia-build-mac-gpu/skia-build-mac-gpu.zip
         env:

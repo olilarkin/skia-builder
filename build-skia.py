@@ -471,9 +471,8 @@ class SkiaBuildScript:
                 gn_args += "target_cpu = \"x86\"\n"
             elif arch == "arm64":
                 gn_args += "target_cpu = \"arm64\"\n"
-                # OpenGL is not supported on Windows ARM64, use ANGLE instead
+                # OpenGL is not supported on Windows ARM64, Dawn/Graphite will be used
                 gn_args += "skia_use_gl = false\n"
-                gn_args += "skia_use_angle = true\n"
             else:  # x64
                 gn_args += "target_cpu = \"x64\"\n"
             gn_args += "clang_win = \"C:\\Program Files\\LLVM\"\n"

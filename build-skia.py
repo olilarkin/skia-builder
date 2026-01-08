@@ -842,6 +842,31 @@ class SkiaBuildScript:
 
         colored_print(f"Patched {ACTIVATE_EMSDK_PATH} to prevent emscripten downloading.", Colors.OKGREEN)
 
+    def apply_patches(self):
+        """Apply any patches from the patches directory."""
+        patches_dir = Path(__file__).resolve().parent / "patches"
+        if not patches_dir.exists():
+            return
+
+        os.chdir(SKIA_SRC_DIR)
+        for patch_file in sorted(patches_dir.glob("*.patch")):
+            colored_print(f"Applying patch: {patch_file.name}", Colors.OKBLUE)
+            try:
+                # Check if patch is already applied
+                result = subprocess.run(
+                    ["git", "apply", "--check", "--reverse", str(patch_file)],
+                    capture_output=True, text=True
+                )
+                if result.returncode == 0:
+                    colored_print(f"  Patch {patch_file.name} already applied, skipping.", Colors.OKCYAN)
+                    continue
+
+                # Apply the patch
+                subprocess.run(["git", "apply", str(patch_file)], check=True)
+                colored_print(f"  Applied {patch_file.name} successfully.", Colors.OKGREEN)
+            except subprocess.CalledProcessError as e:
+                colored_print(f"  Warning: Failed to apply {patch_file.name}: {e}", Colors.WARNING)
+
     def run(self):
         self.parse_arguments()
         self.setup_depot_tools()
@@ -849,10 +874,11 @@ class SkiaBuildScript:
 
         # if self.config == "Release":
         #     self.modify_deps()
-        
+
         # self.patch_activate_emsdk()
 
         self.sync_deps()
+        self.apply_patches()
 
         if "universal" in self.archs or self.xcframework:
             self.archs = ["x86_64", "arm64"]

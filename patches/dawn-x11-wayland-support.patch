@@ -1,0 +1,69 @@
+diff --git a/third_party/dawn/BUILD.gn b/third_party/dawn/BUILD.gn
+index e920f03..3779884 100644
+--- a/third_party/dawn/BUILD.gn
++++ b/third_party/dawn/BUILD.gn
+@@ -281,6 +281,16 @@ action("dawn_cmake") {
+   } else {
+     args += [ "--dawn_enable_vulkan=false" ]
+   }
++  if (dawn_use_x11) {
++    args += [ "--dawn_use_x11=true" ]
++  } else {
++    args += [ "--dawn_use_x11=false" ]
++  }
++  if (dawn_use_wayland) {
++    args += [ "--dawn_use_wayland=true" ]
++  } else {
++    args += [ "--dawn_use_wayland=false" ]
++  }
+ 
+   args += sanitizer_args
+ }
+diff --git a/third_party/dawn/args.gni b/third_party/dawn/args.gni
+index b2c2e70..9f9d50a 100644
+--- a/third_party/dawn/args.gni
++++ b/third_party/dawn/args.gni
+@@ -9,4 +9,6 @@ declare_args() {
+   dawn_enable_opengles = false
+   dawn_enable_metal = is_mac || is_ios
+   dawn_enable_vulkan = is_linux || is_android
++  dawn_use_x11 = is_linux
++  dawn_use_wayland = false
+ }
+diff --git a/third_party/dawn/build_dawn.py b/third_party/dawn/build_dawn.py
+index e23889e..574de99 100644
+--- a/third_party/dawn/build_dawn.py
++++ b/third_party/dawn/build_dawn.py
+@@ -54,6 +54,10 @@ def main():
+       "--dawn_enable_metal", default="false", help="Enable Metal backend.")
+   parser.add_argument(
+       "--dawn_enable_vulkan", default="false", help="Enable Vulkan backend.")
++  parser.add_argument(
++      "--dawn_use_x11", default="false", help="Enable X11 surface support.")
++  parser.add_argument(
++      "--dawn_use_wayland", default="false", help="Enable Wayland surface support.")
+   args = parser.parse_args()
+ 
+   cmake_exe = shutil.which("cmake")
+@@ -107,6 +111,8 @@ def main():
+       f"-DDAWN_ENABLE_OPENGLES={gn_bool_to_cmake(args.dawn_enable_opengles)}",
+       f"-DDAWN_ENABLE_METAL={gn_bool_to_cmake(args.dawn_enable_metal)}",
+       f"-DDAWN_ENABLE_VULKAN={gn_bool_to_cmake(args.dawn_enable_vulkan)}",
++      f"-DDAWN_USE_X11={gn_bool_to_cmake(args.dawn_use_x11)}",
++      f"-DDAWN_USE_WAYLAND={gn_bool_to_cmake(args.dawn_use_wayland)}",
+   ]
+   configure_cmd += get_third_party_locations()
+ 
+diff --git a/third_party/dawn/cmake_utils.py b/third_party/dawn/cmake_utils.py
+index ed4c89d..abe5775 100644
+--- a/third_party/dawn/cmake_utils.py
++++ b/third_party/dawn/cmake_utils.py
+@@ -403,7 +403,7 @@ def get_third_party_locations():
+     "-DTINT_BUILD_BENCHMARKS=OFF",
+     "-DTINT_BUILD_IR_BINARY=OFF",
+     "-DTINT_BUILD_TESTS=OFF",
+-    "-DDAWN_USE_X11=OFF",
++    # Note: DAWN_USE_X11 is now passed from build_dawn.py based on dawn_use_x11 GN arg
+ 
+     # Explicitly mark third_party deps as not here to make debugging easier
+     "-DDAWN_EMDAWNWEBGPU_DIR=NOT_SYNCED_BY_SKIA",

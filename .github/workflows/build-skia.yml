@@ -18,33 +18,51 @@ jobs:
           - os: ubuntu-latest
             platform: wasm
             variant: cpu
+            arch: ""
           - os: ubuntu-latest
             platform: wasm
             variant: gpu
-          - os: ubuntu-latest
+            arch: ""
+          - os: ubuntu-24.04
             platform: linux
             variant: cpu
-          - os: ubuntu-latest
+            arch: x64
+          - os: ubuntu-24.04
             platform: linux
             variant: gpu
+            arch: x64
+          - os: ubuntu-24.04-arm
+            platform: linux
+            variant: cpu
+            arch: arm64
+          - os: ubuntu-24.04-arm
+            platform: linux
+            variant: gpu
+            arch: arm64
           - os: macos-latest
             platform: mac
             variant: cpu
+            arch: ""
           - os: macos-latest
             platform: mac
             variant: gpu
+            arch: ""
           - os: macos-latest
             platform: ios
             variant: cpu
+            arch: ""
           - os: macos-latest
             platform: ios
             variant: gpu
+            arch: ""
           - os: windows-latest
             platform: win
             variant: cpu
+            arch: ""
           - os: windows-latest
             platform: win
             variant: gpu
+            arch: ""
     runs-on: ${{ matrix.os }}
     env:
       SKIA_BRANCH: chrome/m144
@@ -99,8 +117,22 @@ jobs:
       - name: Build Skia (Release)
         if: ${{ !inputs.test_mode }}
         run: |
-          python3 build-skia.py ${{ matrix.platform }} -variant ${{ matrix.variant }} -config Release --shallow -branch ${{ env.SKIA_BRANCH }}
+          ARCH_ARG=""
+          if [ -n "${{ matrix.arch }}" ]; then
+            ARCH_ARG="-archs ${{ matrix.arch }}"
+          fi
+          python3 build-skia.py ${{ matrix.platform }} -variant ${{ matrix.variant }} -config Release --shallow -branch ${{ env.SKIA_BRANCH }} $ARCH_ARG
   
+      - name: Set archive name
+        id: archive
+        shell: bash
+        run: |
+          if [ -n "${{ matrix.arch }}" ]; then
+            echo "name=skia-build-${{ matrix.platform }}-${{ matrix.arch }}-${{ matrix.variant }}" >> $GITHUB_OUTPUT
+          else
+            echo "name=skia-build-${{ matrix.platform }}-${{ matrix.variant }}" >> $GITHUB_OUTPUT
+          fi
+
       - name: Create dummy files for test mode
         if: ${{ inputs.test_mode }}
         run: |
@@ -114,16 +146,16 @@ jobs:
         shell: bash
         run: |
           if [ "${{ runner.os }}" == "Windows" ]; then
-            7z a -tzip skia-build-${{ matrix.platform }}-${{ matrix.variant }}.zip build/include build/${{ matrix.platform }}-${{ matrix.variant }}
+            7z a -tzip ${{ steps.archive.outputs.name }}.zip build/include build/${{ matrix.platform }}-${{ matrix.variant }}
           else
-            zip -r skia-build-${{ matrix.platform }}-${{ matrix.variant }}.zip build/include build/${{ matrix.platform }}-${{ matrix.variant }}
+            zip -r ${{ steps.archive.outputs.name }}.zip build/include build/${{ matrix.platform }}-${{ matrix.variant }}
           fi
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: skia-build-${{ matrix.platform }}-${{ matrix.variant }}
-          path: skia-build-${{ matrix.platform }}-${{ matrix.variant }}.zip
+          name: ${{ steps.archive.outputs.name }}
+          path: ${{ steps.archive.outputs.name }}.zip
 
       - name: Set SKIA_BRANCH output
         run: echo "skia_branch=${{ env.SKIA_BRANCH }}" >> $GITHUB_OUTPUT
@@ -147,8 +179,10 @@ jobs:
           files: |
             ./skia-build-wasm-cpu/skia-build-wasm-cpu.zip
             ./skia-build-wasm-gpu/skia-build-wasm-gpu.zip
-            ./skia-build-linux-cpu/skia-build-linux-cpu.zip
-            ./skia-build-linux-gpu/skia-build-linux-gpu.zip
+            ./skia-build-linux-x64-cpu/skia-build-linux-x64-cpu.zip
+            ./skia-build-linux-x64-gpu/skia-build-linux-x64-gpu.zip
+            ./skia-build-linux-arm64-cpu/skia-build-linux-arm64-cpu.zip
+            ./skia-build-linux-arm64-gpu/skia-build-linux-arm64-gpu.zip
             ./skia-build-ios-cpu/skia-build-ios-cpu.zip
             ./skia-build-ios-gpu/skia-build-ios-gpu.zip
             ./skia-build-win-cpu/skia-build-win-cpu.zip

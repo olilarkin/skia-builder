@@ -110,7 +110,7 @@ jobs:
         run: git config --global init.defaultBranch main
 
       - name: Install LLVM and Clang
-        if: ${{ !(matrix.os == 'windows-11-arm') }}
+        if: ${{ runner.os != 'macOS' && matrix.os != 'windows-11-arm' }}
         uses: KyleMayes/install-llvm-action@v2
         with:
           version: "19.1.0"

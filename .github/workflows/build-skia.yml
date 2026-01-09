@@ -21,26 +21,26 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # Phase 1: macOS GPU
-          - os: macos-latest
-            platform: mac
-            variant: gpu
-            arch: "universal"
-          # Phase 2: Windows x64 GPU
-          - os: windows-latest
-            platform: win
-            variant: gpu
-            arch: x64
-          # Phase 3: Linux x64 GPU
-          - os: ubuntu-24.04
-            platform: linux
-            variant: gpu
-            arch: x64
-          # Phase 4: WASM GPU (uncomment when Linux works)
-          # - os: ubuntu-latest
-          #   platform: wasm
+          # Phase 1: macOS GPU (done)
+          # - os: macos-latest
+          #   platform: mac
           #   variant: gpu
-          #   arch: ""
+          #   arch: "universal"
+          # Phase 2: Windows x64 GPU (done)
+          # - os: windows-latest
+          #   platform: win
+          #   variant: gpu
+          #   arch: x64
+          # Phase 3: Linux x64 GPU (done)
+          # - os: ubuntu-24.04
+          #   platform: linux
+          #   variant: gpu
+          #   arch: x64
+          # Phase 4: WASM GPU
+          - os: ubuntu-latest
+            platform: wasm
+            variant: gpu
+            arch: ""
           # Phase 5: ARM64 platforms (later)
           # - os: ubuntu-24.04-arm
           #   platform: linux
@@ -209,10 +209,9 @@ jobs:
           draft: false
           prerelease: ${{ inputs.test_mode }}
           files: |
-            ./skia-build-mac-universal-gpu/skia-build-mac-universal-gpu.zip
-            ./skia-build-win-x64-gpu/skia-build-win-x64-gpu.zip
-            ./skia-build-linux-x64-gpu/skia-build-linux-x64-gpu.zip
-            # Add more as platforms are enabled:
-            # ./skia-build-wasm-gpu/skia-build-wasm-gpu.zip
+            # ./skia-build-mac-universal-gpu/skia-build-mac-universal-gpu.zip
+            # ./skia-build-win-x64-gpu/skia-build-win-x64-gpu.zip
+            # ./skia-build-linux-x64-gpu/skia-build-linux-x64-gpu.zip
+            ./skia-build-wasm-gpu/skia-build-wasm-gpu.zip
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

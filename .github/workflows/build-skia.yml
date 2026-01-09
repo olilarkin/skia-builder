@@ -109,14 +109,14 @@ jobs:
         if: ${{ !(matrix.os == 'windows-11-arm') }}
         uses: KyleMayes/install-llvm-action@v2
         with:
-          version: "21.1.0"
+          version: "19.1.0"
           env: true
 
       - name: Install LLVM and Clang (Windows ARM64)
         if: matrix.os == 'windows-11-arm'
         shell: pwsh
         run: |
-          $llvmUrl = "https://github.com/llvm/llvm-project/releases/download/llvmorg-21.1.0/LLVM-21.1.0-woa64.exe"
+          $llvmUrl = "https://github.com/llvm/llvm-project/releases/download/llvmorg-19.1.0/LLVM-19.1.0-woa64.exe"
           $installerPath = "$env:TEMP\llvm-installer.exe"
           Write-Host "Downloading LLVM installer..."
           Invoke-WebRequest -Uri $llvmUrl -OutFile $installerPath

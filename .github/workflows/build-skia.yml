@@ -186,10 +186,15 @@ jobs:
       - name: Package binaries
         shell: bash
         run: |
+          # Include share directory if it exists (contains icudtl.dat for ICU)
+          SHARE_DIR=""
+          if [ -d "build/share" ]; then
+            SHARE_DIR="build/share"
+          fi
           if [ "${{ runner.os }}" == "Windows" ]; then
-            7z a -tzip ${{ steps.archive.outputs.name }}.zip build/include build/${{ matrix.platform }}-${{ matrix.variant }}
+            7z a -tzip ${{ steps.archive.outputs.name }}.zip build/include $SHARE_DIR build/${{ matrix.platform }}-${{ matrix.variant }}
           else
-            zip -r ${{ steps.archive.outputs.name }}.zip build/include build/${{ matrix.platform }}-${{ matrix.variant }}
+            zip -r ${{ steps.archive.outputs.name }}.zip build/include $SHARE_DIR build/${{ matrix.platform }}-${{ matrix.variant }}
           fi
 
       - name: Upload artifact

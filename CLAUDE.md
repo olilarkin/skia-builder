@@ -113,4 +113,7 @@ gh workflow run build-skia.yml -f skia_branch=chrome/m145
 # Check CI status
 gh run list
 gh run view <run-id> --log-failed
+
+# Create XCFramework from existing release (without rebuilding)
+gh workflow run create-xcframework.yml -f release_tag=chrome/m144
 ```

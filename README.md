@@ -115,3 +115,13 @@ gh workflow run build-skia.yml -f skia_branch=chrome/m145
 gh run list
 gh run view <run-id> --log-failed
 ```
+
+### Create XCFramework from Existing Release
+
+If you've already built all platforms, you can create an XCFramework without rebuilding:
+
+```bash
+gh workflow run create-xcframework.yml -f release_tag=chrome/m144
+```
+
+This downloads mac, ios, and visionos artifacts from the specified release and creates a combined XCFramework.

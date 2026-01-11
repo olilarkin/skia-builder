@@ -1,0 +1,75 @@
+name: Create XCFramework
+run-name: Create XCFramework from ${{ inputs.release_tag }}
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: 'Release tag to download artifacts from (e.g., chrome/m144)'
+        required: true
+        type: string
+      upload_to_release:
+        description: 'Upload XCFramework to the release'
+        required: false
+        type: boolean
+        default: true
+
+jobs:
+  create-xcframework:
+    runs-on: macos-latest
+    steps:
+      - name: Download release artifacts
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release download "${{ inputs.release_tag }}" \
+            --repo ${{ github.repository }} \
+            --pattern "skia-build-mac-universal-gpu-release.zip" \
+            --pattern "skia-build-ios-gpu-release.zip" \
+            --pattern "skia-build-visionos-arm64-gpu-release.zip"
+
+      - name: Extract artifacts
+        run: |
+          for zip in skia-build-*.zip; do
+            echo "Extracting $zip..."
+            unzip -o "$zip"
+          done
+          echo "Build directory contents:"
+          ls -la build/
+          echo "Mac libs:"
+          ls -la build/mac-gpu/lib/Release/ || true
+          echo "iOS libs:"
+          ls -la build/ios-gpu/lib/Release/ || true
+          echo "visionOS libs:"
+          ls -la build/visionos-gpu/lib/Release/ || true
+
+      - name: Create XCFramework
+        run: |
+          xcodebuild -create-xcframework \
+            -library build/mac-gpu/lib/Release/libSkia.a \
+            -headers build/include \
+            -library build/ios-gpu/lib/Release/arm64/libSkia.a \
+            -library build/ios-gpu/lib/Release/x86_64/libSkia.a \
+            -library build/visionos-gpu/lib/Release/arm64/libSkia.a \
+            -output Skia.xcframework
+
+          echo "XCFramework created:"
+          ls -la Skia.xcframework/
+
+      - name: Package XCFramework
+        run: zip -r Skia.xcframework.zip Skia.xcframework
+
+      - name: Upload XCFramework to release
+        if: ${{ inputs.upload_to_release }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release upload "${{ inputs.release_tag }}" \
+            Skia.xcframework.zip \
+            --repo ${{ github.repository }} \
+            --clobber
+
+      - name: Upload XCFramework artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Skia.xcframework
+          path: Skia.xcframework.zip

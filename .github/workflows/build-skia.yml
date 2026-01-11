@@ -27,7 +27,6 @@ on:
 
 jobs:
   build-skia:
-    if: ${{ inputs.platforms == 'all' || contains(inputs.platforms, matrix.platform) }}
     strategy:
       fail-fast: false
       matrix:
@@ -108,42 +107,57 @@ jobs:
     outputs:
       skia_branch: ${{ env.SKIA_BRANCH }}
     steps:
+      - name: Check if platform should build
+        id: check
+        shell: bash
+        run: |
+          PLATFORMS="${{ inputs.platforms || 'all' }}"
+          if [[ "$PLATFORMS" == "all" ]] || [[ "$PLATFORMS" == *"${{ matrix.platform }}"* ]]; then
+            echo "should_build=true" >> $GITHUB_OUTPUT
+          else
+            echo "should_build=false" >> $GITHUB_OUTPUT
+            echo "Skipping ${{ matrix.platform }} (not in platforms: $PLATFORMS)"
+          fi
+
       - name: Checkout repository
+        if: steps.check.outputs.should_build == 'true'
         uses: actions/checkout@v4
 
       - name: Free disk space (Linux)
-        if: runner.os == 'Linux'
+        if: steps.check.outputs.should_build == 'true' && runner.os == 'Linux'
         run: |
           sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
           sudo docker image prune --all --force
 
       - name: Install Linux build dependencies
-        if: matrix.platform == 'linux'
+        if: steps.check.outputs.should_build == 'true' && matrix.platform == 'linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y libfontconfig1-dev libgl1-mesa-dev libglu1-mesa-dev libx11-xcb-dev libxcb1-dev libxcb-xkb-dev libwayland-dev ninja-build
 
       - name: Set up Ninja
-        if: ${{ matrix.os != 'ubuntu-24.04-arm' }}
+        if: steps.check.outputs.should_build == 'true' && matrix.os != 'ubuntu-24.04-arm'
         uses: seanmiddleditch/gha-setup-ninja@v5
 
       - name: Set up Python
+        if: steps.check.outputs.should_build == 'true'
         uses: actions/setup-python@v5
         with:
           python-version: '3.x'
 
       - name: Set Git default branch
+        if: steps.check.outputs.should_build == 'true'
         run: git config --global init.defaultBranch main
 
       - name: Install LLVM and Clang
-        if: ${{ runner.os != 'macOS' && matrix.os != 'windows-11-arm' }}
+        if: steps.check.outputs.should_build == 'true' && runner.os != 'macOS' && matrix.os != 'windows-11-arm'
         uses: KyleMayes/install-llvm-action@v2
         with:
           version: "19.1.0"
           env: true
 
       - name: Install LLVM and Clang (Windows ARM64)
-        if: matrix.os == 'windows-11-arm'
+        if: steps.check.outputs.should_build == 'true' && matrix.os == 'windows-11-arm'
         shell: pwsh
         run: |
           $llvmUrl = "https://github.com/llvm/llvm-project/releases/download/llvmorg-19.1.0/LLVM-19.1.0-woa64.exe"
@@ -157,6 +171,7 @@ jobs:
           echo "C:\Program Files\LLVM\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
 
       - name: Cache depot_tools and Skia source
+        if: steps.check.outputs.should_build == 'true'
         uses: actions/cache@v4
         with:
           path: |
@@ -170,7 +185,7 @@ jobs:
       #     python3 build-skia.py ${{ matrix.platform }} -config Debug --shallow -branch ${{ env.SKIA_BRANCH }}
 
       - name: Build Skia (${{ matrix.config || 'Release' }})
-        if: ${{ !inputs.test_mode }}
+        if: steps.check.outputs.should_build == 'true' && !inputs.test_mode
         shell: bash
         run: |
           ARCH_ARG=""
@@ -181,6 +196,7 @@ jobs:
           python3 build-skia.py ${{ matrix.platform }} -variant ${{ matrix.variant }} -config $CONFIG --shallow -branch ${{ env.SKIA_BRANCH }} $ARCH_ARG
 
       - name: Set archive name
+        if: steps.check.outputs.should_build == 'true'
         id: archive
         shell: bash
         run: |
@@ -193,7 +209,7 @@ jobs:
           fi
 
       - name: Create dummy files for test mode
-        if: ${{ inputs.test_mode }}
+        if: steps.check.outputs.should_build == 'true' && inputs.test_mode
         shell: bash
         run: |
           mkdir -p build/include
@@ -203,6 +219,7 @@ jobs:
           echo "GN args summary" > build/${{ matrix.platform }}-${{ matrix.variant }}/gn_args.txt
 
       - name: Package binaries
+        if: steps.check.outputs.should_build == 'true'
         shell: bash
         run: |
           # Include share directory if it exists (contains icudtl.dat for ICU)
@@ -217,12 +234,14 @@ jobs:
           fi
 
       - name: Upload artifact
+        if: steps.check.outputs.should_build == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: ${{ steps.archive.outputs.name }}
           path: ${{ steps.archive.outputs.name }}.zip
 
       - name: Set SKIA_BRANCH output
+        if: steps.check.outputs.should_build == 'true'
         shell: bash
         run: echo "skia_branch=${{ env.SKIA_BRANCH }}" >> $GITHUB_OUTPUT
 

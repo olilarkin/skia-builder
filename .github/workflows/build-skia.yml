@@ -26,6 +26,14 @@ jobs:
             variant: gpu
             arch: "universal"
           - os: macos-latest
+            platform: mac
+            variant: gpu
+            arch: "arm64"
+          - os: macos-latest
+            platform: mac
+            variant: gpu
+            arch: "x86_64"
+          - os: macos-latest
             platform: ios
             variant: gpu
             arch: ""
@@ -46,7 +54,7 @@ jobs:
           - os: ubuntu-latest
             platform: wasm
             variant: gpu
-            arch: ""
+            arch: "wasm32"
             config: Release
 
           # ARM64 platforms (later)
@@ -220,10 +228,13 @@ jobs:
           draft: false
           prerelease: ${{ inputs.test_mode }}
           files: |
-            # ./skia-build-mac-universal-gpu-release/skia-build-mac-universal-gpu-release.zip
-            # ./skia-build-win-x64-gpu-release/skia-build-win-x64-gpu-release.zip
-            # ./skia-build-linux-x64-gpu-release/skia-build-linux-x64-gpu-release.zip
-            # ./skia-build-wasm-gpu-release/skia-build-wasm-gpu-release.zip
+            ./skia-build-mac-universal-gpu-release/skia-build-mac-universal-gpu-release.zip
+            ./skia-build-mac-arm64-gpu-release/skia-build-mac-arm64-gpu-release.zip
+            ./skia-build-mac-x86_64-gpu-release/skia-build-mac-x86_64-gpu-release.zip
+            ./skia-build-ios-gpu-release/skia-build-ios-gpu-release.zip
+            ./skia-build-win-x64-gpu-release/skia-build-win-x64-gpu-release.zip
             ./skia-build-win-x64-gpu-debug/skia-build-win-x64-gpu-debug.zip
+            ./skia-build-linux-x64-gpu-release/skia-build-linux-x64-gpu-release.zip
+            ./skia-build-wasm-wasm32-gpu-release/skia-build-wasm-wasm32-gpu-release.zip
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

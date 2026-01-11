@@ -201,10 +201,6 @@ PLATFORM_GN_ARGS = {
     skia_use_metal = true
     target_os = "ios"
     skia_ios_use_signing = false
-    extra_cflags = [
-        "-miphoneos-version-min={IOS_MIN_VERSION}",
-        "-I../../../src/skia/third_party/externals/expat/lib"
-    ]
     extra_cflags_c = ["-Wno-error"]
     """,
 

@@ -133,6 +133,7 @@ PACKAGE_DIRS = [
     "modules/skparagraph",
     "modules/skshaper",
     "modules/skresources",
+    "modules/sksg",
     "modules/skunicode",
     "modules/skcms",
     "modules/svg",
@@ -171,8 +172,9 @@ skia_use_system_zlib = false
 skia_use_system_expat = false
 skia_use_system_icu = false
 skia_use_system_harfbuzz = false
+skia_use_system_libwebp = false
 
-skia_use_libwebp_decode = false
+skia_use_libwebp_decode = true
 skia_use_libwebp_encode = false
 skia_use_xps = false
 skia_use_dng_sdk = false
@@ -1042,7 +1044,9 @@ class SkiaBuildScript:
         target_cpu = "{arch}"
         variant = "{self.variant}"
         """
-        return gn_args.strip()
+        # Remove leading whitespace from each line while preserving structure
+        lines = [line.strip() for line in gn_args.strip().splitlines()]
+        return '\n'.join(line for line in lines if line)
 
     def write_gn_args_summary(self):
         lib_dir = self.get_lib_dir(self.platform)

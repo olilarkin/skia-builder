@@ -210,12 +210,14 @@ PLATFORM_GN_ARGS = {
     # visionOS: Use target_os="ios" because GN doesn't recognize "xros".
     # We must override the sysroot to use XROS SDK instead of iPhoneOS SDK.
     # The sysroot path is computed dynamically in generate_gn_args().
+    # dawn_target_platform tells Dawn to use visionOS SDK for its CMake build.
     # See: https://github.com/Shopify/react-native-skia/issues/2280
     "visionos": f"""
     skia_use_metal = true
     skia_use_dawn = true
     target_os = "ios"
     skia_ios_use_signing = false
+    dawn_target_platform = "visionos"
     extra_cflags_c = ["-Wno-error"]
     """,
 
@@ -1120,6 +1122,8 @@ class SkiaBuildScript:
             return
 
         os.chdir(SKIA_SRC_DIR)
+
+        # Apply .patch files using git apply
         for patch_file in sorted(patches_dir.glob("*.patch")):
             colored_print(f"Applying patch: {patch_file.name}", Colors.OKBLUE)
             try:
@@ -1137,6 +1141,15 @@ class SkiaBuildScript:
                 colored_print(f"  Applied {patch_file.name} successfully.", Colors.OKGREEN)
             except subprocess.CalledProcessError as e:
                 colored_print(f"  Warning: Failed to apply {patch_file.name}: {e}", Colors.WARNING)
+
+        # Apply Python patch scripts (for complex patches that can't use git diff)
+        for patch_script in sorted(patches_dir.glob("apply_*.py")):
+            colored_print(f"Running patch script: {patch_script.name}", Colors.OKBLUE)
+            try:
+                subprocess.run([sys.executable, str(patch_script), str(SKIA_SRC_DIR)], check=True)
+                colored_print(f"  Ran {patch_script.name} successfully.", Colors.OKGREEN)
+            except subprocess.CalledProcessError as e:
+                colored_print(f"  Warning: Failed to run {patch_script.name}: {e}", Colors.WARNING)
 
     def run(self):
         self.parse_arguments()

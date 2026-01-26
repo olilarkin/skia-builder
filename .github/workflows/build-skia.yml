@@ -331,21 +331,41 @@ jobs:
             build/ios-gpu/lib/Release/simulator-x86_64/libSkia.a \
             -output build/ios-gpu/lib/Release/simulator/libSkia.a
 
+          # Create XCFramework with headers only on one library (they'll be shared via symlinks)
           xcodebuild -create-xcframework \
             -library build/mac-gpu/lib/Release/libSkia.a \
             -headers build/include \
             -library build/ios-gpu/lib/Release/device-arm64/libSkia.a \
-            -headers build/include \
             -library build/ios-gpu/lib/Release/simulator/libSkia.a \
-            -headers build/include \
             -library build/visionos-gpu/lib/Release/device-arm64/libSkia.a \
-            -headers build/include \
             -library build/visionos-gpu/lib/Release/simulator-arm64/libSkia.a \
-            -headers build/include \
             -output Skia.xcframework
 
+          # Move headers to root level and create symlinks to avoid duplication
+          # Find the directory that has Headers (the one we specified -headers for)
+          HEADERS_SRC=$(find Skia.xcframework -type d -name "Headers" | head -1)
+          HEADERS_PARENT=$(dirname "$HEADERS_SRC")
+
+          # Move headers to xcframework root
+          mv "$HEADERS_SRC" Skia.xcframework/Headers
+
+          # Create symlink in the original location
+          ln -s ../Headers "$HEADERS_SRC"
+
+          # Create symlinks for all other platform directories
+          for dir in Skia.xcframework/*/; do
+            dir=${dir%/}  # Remove trailing slash
+            if [ -d "$dir" ] && [ ! -L "$dir/Headers" ] && [ ! -d "$dir/Headers" ]; then
+              # Get relative path depth for symlink
+              ln -s ../Headers "$dir/Headers"
+            fi
+          done
+
+          echo "XCFramework structure:"
+          find Skia.xcframework -type l -o -type d | head -30
+
       - name: Package XCFramework
-        run: zip -r Skia.xcframework.zip Skia.xcframework
+        run: zip -ry Skia.xcframework.zip Skia.xcframework  # -y preserves symlinks
 
       - name: Upload XCFramework artifact
         uses: actions/upload-artifact@v4

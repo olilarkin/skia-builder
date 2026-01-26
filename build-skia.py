@@ -401,8 +401,10 @@ class SkiaBuildScript:
         parser.add_argument("-target", choices=["device", "simulator", "all"], default="all",
                            help="Build target for iOS/visionOS: device, simulator, or all")
         parser.add_argument("--shallow", action="store_true", help="Perform a shallow clone of the Skia repository")
-        parser.add_argument("--zip-all", action="store_true", 
+        parser.add_argument("--zip-all", action="store_true",
                            help="Create a zip archive containing all platform libraries")
+        parser.add_argument("--strip-arm64e", action="store_true",
+                           help="Strip arm64e slice from iOS/visionOS libraries (reduces size)")
         args = parser.parse_args()
 
         if args.platform == "xcframework":
@@ -423,6 +425,7 @@ class SkiaBuildScript:
         self.target = args.target
         self.shallow_clone = args.shallow
         self.create_zip_all = args.zip_all
+        self.strip_arm64e = args.strip_arm64e
         self.validate_archs()
 
     def get_default_archs(self):
@@ -661,6 +664,9 @@ class SkiaBuildScript:
             if src_file.exists():
                 shutil.copy2(str(src_file), str(dest_file))
                 colored_print(f"Copied {lib} to {dest_dir}", Colors.OKGREEN)
+                # Strip arm64e if requested (iOS/visionOS only)
+                if self.strip_arm64e and self.platform in ["ios", "visionos"]:
+                    self.strip_arm64e_from_library(dest_file)
                 src_file.unlink()
             else:
                 colored_print(f"Warning: {lib} not found in {src_dir}", Colors.WARNING)
@@ -677,8 +683,40 @@ class SkiaBuildScript:
                 if src_file.exists():
                     shutil.copy2(str(src_file), str(dest_file))
                     colored_print(f"Copied {lib} (Dawn) to {dest_dir}", Colors.OKGREEN)
+                    # Strip arm64e if requested (iOS/visionOS only)
+                    if self.strip_arm64e and self.platform in ["ios", "visionos"]:
+                        self.strip_arm64e_from_library(dest_file)
                 else:
                     colored_print(f"Warning: Dawn library {lib} not found", Colors.WARNING)
+
+    def strip_arm64e_from_library(self, lib_path):
+        """Strip arm64e slice from a fat library, keeping only arm64."""
+        lib_path = Path(lib_path)
+        if not lib_path.exists():
+            return
+
+        # Check if library contains arm64e
+        result = subprocess.run(
+            ["lipo", "-info", str(lib_path)],
+            capture_output=True, text=True
+        )
+        if "arm64e" not in result.stdout:
+            return  # No arm64e slice to strip
+
+        # Extract arm64 slice only
+        temp_path = lib_path.with_suffix('.arm64.a')
+        try:
+            subprocess.run(
+                ["lipo", str(lib_path), "-thin", "arm64", "-output", str(temp_path)],
+                check=True, capture_output=True
+            )
+            # Replace original with thinned version
+            temp_path.replace(lib_path)
+            colored_print(f"  Stripped arm64e from {lib_path.name}", Colors.OKCYAN)
+        except subprocess.CalledProcessError:
+            # If thinning fails (e.g., single arch), just leave it alone
+            if temp_path.exists():
+                temp_path.unlink()
 
     # Lipo different architectures into a universal binary
     def create_universal_binary(self):

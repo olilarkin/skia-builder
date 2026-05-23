@@ -46,14 +46,12 @@ jobs:
             local lib="$1"
             if lipo -info "$lib" 2>/dev/null | grep -q "arm64e"; then
               echo "Stripping arm64e from $lib"
-              # Get all architectures except arm64e
-              archs=$(lipo -info "$lib" | sed 's/.*: //' | tr ' ' '\n' | grep -v arm64e | tr '\n' ' ')
-              lipo "$lib" -extract $archs -output "${lib}.tmp"
+              lipo "$lib" -remove arm64e -output "${lib}.tmp"
               mv "${lib}.tmp" "$lib"
             fi
           }
 
-          for lib in $(find build -name "libSkia.a"); do
+          find build -name "libSkia.a" -print0 | while IFS= read -r -d '' lib; do
             strip_arm64e "$lib"
           done
 

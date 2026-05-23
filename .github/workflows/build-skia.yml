@@ -26,7 +26,7 @@ on:
         default: false
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ inputs.skia_branch || 'chrome/m144' }}-${{ inputs.platforms || 'all' }}-${{ inputs.skip_release && 'skip-release' || 'release' }}
   cancel-in-progress: true
 
 jobs:
@@ -396,6 +396,8 @@ jobs:
     if: ${{ !inputs.skip_release && inputs.platforms == 'all' }}
     needs: [build-skia, create-xcframework]
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - name: Download artifacts
         uses: actions/download-artifact@v4

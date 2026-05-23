@@ -615,11 +615,7 @@ class SkiaBuildScript:
         output_dir = TMP_DIR / f"{self.platform}_{self.config}_{arch}_{self.variant}"
         
         # Get the list of libraries for the current platform
-        libs_to_build = LIBS[self.platform]
-        
-        # On Windows, ninja expects targets without the .lib extension
-        if self.platform == "win":
-            libs_to_build = [lib[:-4] if lib.endswith('.lib') else lib for lib in libs_to_build]
+        libs_to_build = [self.get_ninja_target_name(lib) for lib in LIBS[self.platform]]
         
         # Construct the ninja command with all library targets
         ninja_command = ["ninja", "-C", str(output_dir)] + libs_to_build
@@ -633,6 +629,20 @@ class SkiaBuildScript:
             print(f"Ninja command: {' '.join(ninja_command)}")
             print(f"Error details: {e}")
             sys.exit(1)
+
+    def get_ninja_target_name(self, lib: str) -> str:
+        """Return the Ninja target name for a packaged library filename."""
+        if self.platform == "win" and lib.endswith(".lib"):
+            return lib[:-4]
+        if self.platform == "wasm" and lib.endswith(".a"):
+            return f"{lib[:-2]}.wasm.a"
+        return lib
+
+    def get_built_library_name(self, lib: str) -> str:
+        """Return the filename emitted by the toolchain for a packaged library."""
+        if self.platform == "wasm" and lib.endswith(".a"):
+            return f"{lib[:-2]}.wasm.a"
+        return lib
 
     def move_libs(self, arch: str):
         src_dir = TMP_DIR / f"{self.platform}_{self.config}_{arch}_{self.variant}"
@@ -659,7 +669,7 @@ class SkiaBuildScript:
 
         # Copy the libraries
         for lib in LIBS[self.platform]:
-            src_file = src_dir / lib
+            src_file = src_dir / self.get_built_library_name(lib)
             dest_file = dest_dir / lib
             if src_file.exists():
                 shutil.copy2(str(src_file), str(dest_file))

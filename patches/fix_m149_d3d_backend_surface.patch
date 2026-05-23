@@ -1,0 +1,36 @@
+diff --git a/src/gpu/ganesh/d3d/GrD3DBackendSurface.cpp b/src/gpu/ganesh/d3d/GrD3DBackendSurface.cpp
+index 8d20c4fbda..e4d94b0c76 100644
+--- a/src/gpu/ganesh/d3d/GrD3DBackendSurface.cpp
++++ b/src/gpu/ganesh/d3d/GrD3DBackendSurface.cpp
+@@ -39,7 +39,6 @@ private:
+ 
+     GrColorFormatDesc desc() const override { return GrDxgiFormatDesc(fFormat); }
+ 
+-#if defined(GPU_TEST_UTILS)
+     bool equal(const GrBackendFormatData* that) const override {
+         SkASSERT(!that || that->type() == GrBackendApi::kDirect3D);
+         if (auto otherD3D = static_cast<const GrD3DBackendFormatData*>(that)) {
+@@ -47,7 +46,6 @@ private:
+         }
+         return false;
+     }
+-#endif
+ 
+     std::string toString() const override {
+ #if defined(SK_DEBUG) || defined(GPU_TEST_UTILS)
+@@ -114,6 +112,7 @@ private:
+ 
+     bool isProtected() const override { return false; }
+ 
++#if defined(GPU_TEST_UTILS)
+     bool equal(const GrBackendTextureData* that) const override {
+         SkASSERT(!that || that->type() == GrBackendApi::kDirect3D);
+ #if defined(GPU_TEST_UTILS)
+@@ -123,6 +122,7 @@ private:
+ #endif
+         return false;
+     }
++#endif
+ 
+     bool isSameTexture(const GrBackendTextureData* that) const override {
+         SkASSERT(!that || that->type() == GrBackendApi::kDirect3D);

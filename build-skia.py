@@ -223,6 +223,7 @@ PLATFORM_GN_ARGS = {
 
     "win": """
     skia_use_dawn = true
+    # Keep Direct3D enabled; the m149 build patch handles the Release-only issue.
     skia_use_direct3d = true
     is_trivial_abi = false
     """,

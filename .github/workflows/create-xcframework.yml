@@ -13,9 +13,14 @@ on:
         type: boolean
         default: true
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
   create-xcframework:
-    runs-on: macos-latest
+    runs-on: macos-15
+    permissions:
+      contents: write
     steps:
       - name: Download release artifacts
         env:
@@ -111,7 +116,7 @@ jobs:
             --clobber
 
       - name: Upload XCFramework artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: Skia.xcframework
           path: Skia.xcframework.zip

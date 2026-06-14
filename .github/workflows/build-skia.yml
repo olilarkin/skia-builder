@@ -29,50 +29,53 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}-${{ inputs.skia_branch || 'chrome/m144' }}-${{ inputs.platforms || 'all' }}-${{ inputs.skip_release && 'skip-release' || 'release' }}
   cancel-in-progress: true
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
   build-skia:
     strategy:
       fail-fast: false
       matrix:
         include:
-          - os: macos-latest
+          - os: macos-15
             platform: mac
             variant: gpu
             arch: "universal"
-          - os: macos-latest
+          - os: macos-15
             platform: mac
             variant: gpu
             arch: "arm64"
-          - os: macos-latest
+          - os: macos-15
             platform: mac
             variant: gpu
             arch: "x86_64"
-          - os: macos-latest
+          - os: macos-15
             platform: ios
             variant: gpu
             arch: "arm64"
             target: "device"
-          - os: macos-latest
+          - os: macos-15
             platform: ios
             variant: gpu
             arch: "arm64,x86_64"
             target: "simulator"
-          - os: macos-latest
+          - os: macos-15
             platform: visionos
             variant: gpu
             arch: "arm64"
             target: "device"
-          - os: macos-latest
+          - os: macos-15
             platform: visionos
             variant: gpu
             arch: "arm64"
             target: "simulator"
-          - os: windows-latest
+          - os: windows-2022
             platform: win
             variant: gpu
             arch: x64
             config: Release
-          - os: windows-latest
+          - os: windows-2022
             platform: win
             variant: gpu
             arch: x64
@@ -97,11 +100,11 @@ jobs:
           #   variant: gpu
           #   arch: arm64
           # CPU variants
-          # - os: macos-latest
+          # - os: macos-15
           #   platform: mac
           #   variant: cpu
           #   arch: ""
-          # - os: windows-latest
+          # - os: windows-2022
           #   platform: win
           #   variant: cpu
           #   arch: x64
@@ -113,7 +116,7 @@ jobs:
           #   platform: wasm
           #   variant: cpu
           #   arch: ""
-          # - os: macos-latest
+          # - os: macos-15
           #   platform: ios
           #   variant: cpu
           #   arch: ""
@@ -121,7 +124,7 @@ jobs:
     env:
       SKIA_BRANCH: ${{ inputs.skia_branch || 'chrome/m144' }}
     outputs:
-      skia_branch: ${{ env.SKIA_BRANCH }}
+      skia_branch: ${{ steps.skia_branch.outputs.skia_branch }}
     steps:
       - name: Check if platform should build
         id: check
@@ -129,15 +132,15 @@ jobs:
         run: |
           PLATFORMS="${{ inputs.platforms || 'all' }}"
           if [[ "$PLATFORMS" == "all" ]] || [[ "$PLATFORMS" == *"${{ matrix.platform }}"* ]]; then
-            echo "should_build=true" >> $GITHUB_OUTPUT
+            echo "should_build=true" >> "$GITHUB_OUTPUT"
           else
-            echo "should_build=false" >> $GITHUB_OUTPUT
+            echo "should_build=false" >> "$GITHUB_OUTPUT"
             echo "Skipping ${{ matrix.platform }} (not in platforms: $PLATFORMS)"
           fi
 
       - name: Checkout repository
         if: steps.check.outputs.should_build == 'true'
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Free disk space (Linux)
         if: steps.check.outputs.should_build == 'true' && runner.os == 'Linux'
@@ -149,15 +152,37 @@ jobs:
         if: steps.check.outputs.should_build == 'true' && matrix.platform == 'linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libfontconfig1-dev libgl1-mesa-dev libglu1-mesa-dev libx11-xcb-dev libxcb1-dev libxcb-xkb-dev libwayland-dev ninja-build
+          sudo apt-get install -y libfontconfig1-dev libgl1-mesa-dev libglu1-mesa-dev libx11-xcb-dev libxcb1-dev libxcb-xkb-dev libwayland-dev
 
-      - name: Set up Ninja
-        if: steps.check.outputs.should_build == 'true' && matrix.os != 'ubuntu-24.04-arm'
-        uses: seanmiddleditch/gha-setup-ninja@v5
+      - name: Install Ninja
+        if: steps.check.outputs.should_build == 'true'
+        shell: bash
+        run: |
+          if command -v ninja >/dev/null 2>&1; then
+            ninja --version
+            exit 0
+          fi
+
+          case "${{ runner.os }}" in
+            Linux)
+              sudo apt-get update
+              sudo apt-get install -y ninja-build
+              ;;
+            macOS)
+              brew install ninja
+              ;;
+            Windows)
+              choco install ninja --no-progress --yes
+              printf '%s\n' 'C:\ProgramData\chocolatey\bin' >> "$GITHUB_PATH"
+              export PATH="/c/ProgramData/chocolatey/bin:$PATH"
+              ;;
+          esac
+
+          ninja --version
 
       - name: Set up Python
         if: steps.check.outputs.should_build == 'true'
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: '3.x'
 
@@ -193,11 +218,11 @@ jobs:
         run: |
           # Replace commas with dashes for cache key (commas not allowed)
           ARCH_SAFE=$(echo "${{ matrix.arch || 'default' }}" | tr ',' '-')
-          echo "arch=${ARCH_SAFE}" >> $GITHUB_OUTPUT
+          echo "arch=${ARCH_SAFE}" >> "$GITHUB_OUTPUT"
 
       - name: Cache depot_tools and Skia source
         if: steps.check.outputs.should_build == 'true'
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: |
             build/tmp/depot_tools
@@ -244,7 +269,7 @@ jobs:
             NAME="${NAME}-${ARCH_SAFE}"
           fi
           NAME="${NAME}-${{ matrix.variant }}-${CONFIG_LOWER}"
-          echo "name=${NAME}" >> $GITHUB_OUTPUT
+          echo "name=${NAME}" >> "$GITHUB_OUTPUT"
 
       - name: Create dummy files for test mode
         if: steps.check.outputs.should_build == 'true' && inputs.test_mode
@@ -273,43 +298,44 @@ jobs:
 
       - name: Upload artifact
         if: steps.check.outputs.should_build == 'true'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ${{ steps.archive.outputs.name }}
           path: ${{ steps.archive.outputs.name }}.zip
 
       - name: Set SKIA_BRANCH output
+        id: skia_branch
         if: steps.check.outputs.should_build == 'true'
         shell: bash
-        run: echo "skia_branch=${{ env.SKIA_BRANCH }}" >> $GITHUB_OUTPUT
+        run: echo "skia_branch=${SKIA_BRANCH}" >> "$GITHUB_OUTPUT"
 
   create-xcframework:
     needs: build-skia
     if: ${{ !inputs.skip_release && (inputs.platforms == 'all') }}
-    runs-on: macos-latest
+    runs-on: macos-15
     steps:
       - name: Download macOS artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           name: skia-build-mac-universal-gpu-release
 
       - name: Download iOS device artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           name: skia-build-ios-device-arm64-gpu-release
 
       - name: Download iOS simulator artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           name: skia-build-ios-simulator-arm64-x86_64-gpu-release
 
       - name: Download visionOS device artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           name: skia-build-visionos-device-arm64-gpu-release
 
       - name: Download visionOS simulator artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           name: skia-build-visionos-simulator-arm64-gpu-release
 
@@ -385,7 +411,7 @@ jobs:
         run: zip -ry Skia.xcframework.zip Skia.xcframework  # -y preserves symlinks
 
       - name: Upload XCFramework artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: Skia.xcframework
           path: Skia.xcframework.zip
@@ -398,10 +424,10 @@ jobs:
       contents: write
     steps:
       - name: Download artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
 
       - name: Create Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           body: |
             https://raw.githubusercontent.com/google/skia/${{ needs.build-skia.outputs.skia_branch }}/RELEASE_NOTES.md

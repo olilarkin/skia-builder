@@ -8,7 +8,7 @@ on:
         description: 'Skia branch to build (e.g., chrome/m144)'
         required: false
         type: string
-        default: 'chrome/m144'
+        default: 'chrome/m149'
       platforms:
         description: 'Platforms to build (comma-separated, or "all")'
         required: false

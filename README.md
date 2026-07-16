@@ -51,7 +51,7 @@ ulimit -n 2048
 
 in order to increase the number of files that can be opened at once.
 
-Note: macOS builds target macOS 11+ (Big Sur). This is hardcoded in Skia's `gn/skia/BUILD.gn` via the `-target` compiler flag.
+Note: macOS builds target macOS 11+ (Big Sur) by default, applied via `-target` compiler flags and `MACOSX_DEPLOYMENT_TARGET` so that both the Skia libraries and the Dawn CMake sub-build are pinned. The minimum deployment targets are configurable with `-mac-min-version`, `-ios-min-version` and `-visionos-min-version` (e.g. `python3 build-skia.py mac -mac-min-version 12.0`).
 
 ### Build for macOS universal (arm64 & x86_64 intel)
 

@@ -75,8 +75,8 @@ WASM_LIB_DIR = BASE_DIR / "wasm" / "lib"
 WIN_LIB_DIR = BASE_DIR / "win" / "lib"
 LINUX_LIB_DIR = BASE_DIR / "linux" / "lib"
 
-# Platform-specific constants
-MAC_MIN_VERSION = "10.15"
+# Default minimum OS versions (overridable with -mac-min-version etc.)
+MAC_MIN_VERSION = "11.0"  # Dawn requires macOS 11.0+ for C++ atomic wait/notify
 IOS_MIN_VERSION = "14.0"  # Dawn requires iOS 14.0+ for C++ atomic wait/notify
 VISIONOS_MIN_VERSION = "1.0"
 
@@ -310,14 +310,11 @@ PLATFORM_GN_ARGS_CPU = {
     extra_cflags_c = ["-Wno-error"]
     """,
 
-    "ios": f"""
+    # extra_cflags (target/sysroot/min version) are appended in generate_gn_args().
+    "ios": """
     skia_use_metal = false
     target_os = "ios"
     skia_ios_use_signing = false
-    extra_cflags = [
-        "-miphoneos-version-min={IOS_MIN_VERSION}",
-        "-I../../../src/skia/third_party/externals/expat/lib"
-    ]
     extra_cflags_c = ["-Wno-error"]
     """,
 
@@ -401,6 +398,9 @@ class SkiaBuildScript:
         self.variant = "gpu"
         self.target = "all"  # device, simulator, or all
         self.crt = "MT"  # Windows CRT linkage: MT (static) or MD (dynamic)
+        self.mac_min_version = MAC_MIN_VERSION
+        self.ios_min_version = IOS_MIN_VERSION
+        self.visionos_min_version = VISIONOS_MIN_VERSION
 
     def parse_arguments(self):
         parser = argparse.ArgumentParser(description="Build Skia for macOS, iOS, visionOS, Windows, Linux and WebAssembly")
@@ -415,6 +415,12 @@ class SkiaBuildScript:
                            help="Build target for iOS/visionOS: device, simulator, or all")
         parser.add_argument("-crt", choices=["MT", "MD"], default="MT",
                            help="Windows CRT linkage: MT (static, default) or MD (dynamic). No effect on other platforms")
+        parser.add_argument("-mac-min-version", default=MAC_MIN_VERSION,
+                           help=f"Minimum macOS deployment target (default: {MAC_MIN_VERSION})")
+        parser.add_argument("-ios-min-version", default=IOS_MIN_VERSION,
+                           help=f"Minimum iOS deployment target (default: {IOS_MIN_VERSION})")
+        parser.add_argument("-visionos-min-version", default=VISIONOS_MIN_VERSION,
+                           help=f"Minimum visionOS deployment target (default: {VISIONOS_MIN_VERSION})")
         parser.add_argument("--shallow", action="store_true", help="Perform a shallow clone of the Skia repository")
         parser.add_argument("--zip-all", action="store_true",
                            help="Create a zip archive containing all platform libraries")
@@ -439,6 +445,9 @@ class SkiaBuildScript:
         self.variant = args.variant
         self.target = args.target
         self.crt = args.crt
+        self.mac_min_version = args.mac_min_version
+        self.ios_min_version = args.ios_min_version
+        self.visionos_min_version = args.visionos_min_version
         if self.crt == "MD" and self.platform != "win":
             colored_print("Warning: -crt MD only affects Windows; ignoring.", Colors.WARNING)
             self.crt = "MT"
@@ -534,7 +543,14 @@ class SkiaBuildScript:
             gn_args += "is_official_build = true\n"
 
         if self.platform == "mac":
-            gn_args += f"target_cpu = \"{arch}\""
+            gn_args += f'target_cpu = "{arch}"\n'
+            # Pin the deployment target explicitly. Skia's GN files pin their own
+            # macOS minimum, but Dawn and other sub-builds inherit the build
+            # host's OS without this (gh issue #13). extra_cflags come after
+            # Skia's own flags, so this -target wins.
+            gn_args += f'''extra_cflags = [ "-target", "{arch}-apple-macos{self.mac_min_version}" ]
+    extra_asmflags = [ "-target", "{arch}-apple-macos{self.mac_min_version}" ]
+'''
         elif self.platform == "ios":
             cpu = "arm64" if arch == "arm64" else "x64"
             gn_args += f'target_cpu = "{cpu}"\n'
@@ -555,7 +571,7 @@ class SkiaBuildScript:
                 sdk_path = sdk_result.stdout.strip()
                 colored_print(f"Using iOS Simulator SDK: {sdk_path}", Colors.OKBLUE)
                 gn_args += f'''extra_cflags = [
-        "-target", "{arch}-apple-ios{IOS_MIN_VERSION}-simulator",
+        "-target", "{arch}-apple-ios{self.ios_min_version}-simulator",
         "-isysroot", "{sdk_path}",
         "-I../../../src/skia/third_party/externals/expat/lib"
     ]
@@ -569,7 +585,7 @@ class SkiaBuildScript:
                 sdk_path = sdk_result.stdout.strip()
                 colored_print(f"Using iOS Device SDK: {sdk_path}", Colors.OKBLUE)
                 gn_args += f'''extra_cflags = [
-        "-target", "{arch}-apple-ios{IOS_MIN_VERSION}",
+        "-target", "{arch}-apple-ios{self.ios_min_version}",
         "-isysroot", "{sdk_path}",
         "-I../../../src/skia/third_party/externals/expat/lib"
     ]
@@ -597,12 +613,12 @@ class SkiaBuildScript:
             # Add extra_cflags and extra_asmflags with target and sysroot to override iOS defaults
             # extra_asmflags is needed for ICU data file (icudtl_dat.o) to get correct platform metadata
             gn_args += f'''extra_cflags = [
-        "-target", "arm64-apple-xros{VISIONOS_MIN_VERSION}{target_suffix}",
+        "-target", "arm64-apple-xros{self.visionos_min_version}{target_suffix}",
         "-isysroot", "{sdk_path}",
         "-I../../../src/skia/third_party/externals/expat/lib"
     ]
     extra_asmflags = [
-        "-target", "arm64-apple-xros{VISIONOS_MIN_VERSION}{target_suffix}",
+        "-target", "arm64-apple-xros{self.visionos_min_version}{target_suffix}",
         "-isysroot", "{sdk_path}"
     ]
 '''
@@ -1228,6 +1244,12 @@ if (skia_use_angle) {
         """
         if self.platform == "win":
             gn_args += f'crt = "{self.crt}"\n'
+        elif self.platform == "mac":
+            gn_args += f'min_os_version = "{self.mac_min_version}"\n'
+        elif self.platform == "ios":
+            gn_args += f'min_os_version = "{self.ios_min_version}"\n'
+        elif self.platform == "visionos":
+            gn_args += f'min_os_version = "{self.visionos_min_version}"\n'
         # Remove leading whitespace from each line while preserving structure
         lines = [line.strip() for line in gn_args.strip().splitlines()]
         return '\n'.join(line for line in lines if line)
@@ -1325,6 +1347,16 @@ if (skia_use_angle) {
 
     def run(self):
         self.parse_arguments()
+
+        # Pin Apple deployment targets for Dawn's CMake sub-build, which doesn't
+        # inherit GN's extra_cflags. CMake reads MACOSX_DEPLOYMENT_TARGET natively
+        # on the Darwin path; the SKIA_* vars are read by the get_ios_settings /
+        # get_visionos_settings helpers that patches/apply_dawn_ios_visionos.py
+        # adds to Skia's third_party/dawn/cmake_utils.py. See gh issue #13.
+        os.environ["MACOSX_DEPLOYMENT_TARGET"] = self.mac_min_version
+        os.environ["SKIA_IOS_MIN_VERSION"] = self.ios_min_version
+        os.environ["SKIA_VISIONOS_MIN_VERSION"] = self.visionos_min_version
+
         self.setup_depot_tools()
         self.setup_skia_repo()
         self.setup_gn_for_windows_arm64()

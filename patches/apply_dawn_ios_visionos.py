@@ -191,8 +191,10 @@ def get_ios_settings(target_cpu, is_simulator=False):
     sys.exit(1)
 
   ios_cfgs.append(f"-DCMAKE_OSX_SYSROOT={sdk_path}")
-  # Dawn uses C++ atomic wait/notify_all which requires iOS 14.0+
-  ios_cfgs.append("-DCMAKE_OSX_DEPLOYMENT_TARGET=14.0")
+  # Dawn uses C++ atomic wait/notify_all which requires iOS 14.0+.
+  # build-skia.py exports SKIA_IOS_MIN_VERSION from its -ios-min-version flag.
+  min_version = os.environ.get("SKIA_IOS_MIN_VERSION", "14.0")
+  ios_cfgs.append(f"-DCMAKE_OSX_DEPLOYMENT_TARGET={min_version}")
 
   # Cross-compilation hints for pthreads (built-in on iOS)
   # CMake's FindThreads module can't run test programs when cross-compiling,
@@ -242,14 +244,16 @@ def get_visionos_settings(target_cpu, is_simulator=False):
     sys.exit(1)
 
   visionos_cfgs.append(f"-DCMAKE_OSX_SYSROOT={sdk_path}")
-  # visionOS minimum deployment target
-  visionos_cfgs.append("-DCMAKE_OSX_DEPLOYMENT_TARGET=1.0")
+  # visionOS minimum deployment target.
+  # build-skia.py exports SKIA_VISIONOS_MIN_VERSION from its -visionos-min-version flag.
+  min_version = os.environ.get("SKIA_VISIONOS_MIN_VERSION", "1.0")
+  visionos_cfgs.append(f"-DCMAKE_OSX_DEPLOYMENT_TARGET={min_version}")
   # Add target triple flags to ensure correct platform metadata in object files
   # This is critical - without it, object files get iOS platform metadata instead of visionOS
   # Include -w to suppress warnings (normally added elsewhere, but we're overriding FLAGS)
-  visionos_cfgs.append(f"-DCMAKE_C_FLAGS=-w -target arm64-apple-xros1.0{target_suffix}")
-  visionos_cfgs.append(f"-DCMAKE_CXX_FLAGS=-w -target arm64-apple-xros1.0{target_suffix}")
-  visionos_cfgs.append(f"-DCMAKE_ASM_FLAGS=-target arm64-apple-xros1.0{target_suffix}")
+  visionos_cfgs.append(f"-DCMAKE_C_FLAGS=-w -target arm64-apple-xros{min_version}{target_suffix}")
+  visionos_cfgs.append(f"-DCMAKE_CXX_FLAGS=-w -target arm64-apple-xros{min_version}{target_suffix}")
+  visionos_cfgs.append(f"-DCMAKE_ASM_FLAGS=-target arm64-apple-xros{min_version}{target_suffix}")
 
   # Cross-compilation hints for pthreads (built-in on visionOS)
   visionos_cfgs.append("-DCMAKE_CROSSCOMPILING=YES")

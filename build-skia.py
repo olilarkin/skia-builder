@@ -127,8 +127,11 @@ GPU_LIBS = {
     "linux": ["libdawn_combined.a"],
 }
 
-# ANGLE shared libraries (Windows gpu variant, GL-capable archs only)
-ANGLE_NINJA_TARGETS = ["libEGL", "libGLESv2"]
+# ANGLE shared libraries (Windows gpu variant, GL-capable archs only).
+# angle_libs is a group appended to Skia's BUILD.gn by patch_angle_build_gn() —
+# Skia only references //third_party/angle2 from test tools, so without it GN
+# never generates the libEGL/libGLESv2 targets in official builds.
+ANGLE_NINJA_TARGETS = ["angle_libs"]
 ANGLE_FILES_WIN = ["libEGL.dll", "libEGL.dll.lib", "libGLESv2.dll", "libGLESv2.dll.lib"]
 
 # Directories to package
@@ -959,6 +962,35 @@ class SkiaBuildScript:
                     shutil.copy2(src_file, dest_file)
         colored_print(f"Packaged ANGLE headers to {dest_root}", Colors.OKGREEN)
 
+    def patch_angle_build_gn(self):
+        """Expose ANGLE libraries as a top-level GN target.
+
+        Skia's BUILD.gn only references //third_party/angle2 from test/tool
+        targets, which don't exist in official builds — so GN never loads the
+        ANGLE build files and ninja has no libEGL/libGLESv2 targets. Appending
+        a group makes GN generate them. Idempotent; the checkout is reset with
+        git reset --hard on every run, so the append is re-applied each time."""
+        if not any(self.win_angle_enabled(arch) for arch in self.archs):
+            return
+        build_gn = SKIA_SRC_DIR / "BUILD.gn"
+        if not build_gn.exists():
+            colored_print(f"Warning: {build_gn} not found; cannot enable ANGLE targets", Colors.WARNING)
+            return
+        content = build_gn.read_text()
+        if 'group("angle_libs")' in content:
+            return
+        content += '''
+# Added by skia-builder: expose ANGLE libraries as a top-level target so they
+# are generated even when Skia's tools (the only in-tree consumers) are off.
+if (skia_use_angle) {
+  group("angle_libs") {
+    deps = [ "//third_party/angle2" ]
+  }
+}
+'''
+        build_gn.write_text(content)
+        colored_print("Appended angle_libs group to Skia BUILD.gn", Colors.OKGREEN)
+
     def patch_dawn_crt_runtime(self):
         """Set Dawn's CMake CRT flags to match -crt.
 
@@ -1305,6 +1337,7 @@ class SkiaBuildScript:
         self.sync_deps()
         self.apply_patches()
         self.patch_dawn_crt_runtime()
+        self.patch_angle_build_gn()
 
         if "universal" in self.archs or self.xcframework:
             self.archs = ["x86_64", "arm64"]

@@ -38,6 +38,7 @@ SOFTWARE.
 
 import argparse
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -125,6 +126,13 @@ GPU_LIBS = {
     "wasm": [],  # WASM uses browser WebGPU
     "linux": ["libdawn_combined.a"],
 }
+
+# ANGLE shared libraries (Windows gpu variant, GL-capable archs only).
+# angle_libs is a group appended to Skia's BUILD.gn by patch_angle_build_gn() —
+# Skia only references //third_party/angle2 from test tools, so without it GN
+# never generates the libEGL/libGLESv2 targets in official builds.
+ANGLE_NINJA_TARGETS = ["angle_libs"]
+ANGLE_FILES_WIN = ["libEGL.dll", "libEGL.dll.lib", "libGLESv2.dll", "libGLESv2.dll.lib"]
 
 # Directories to package
 PACKAGE_DIRS = [
@@ -392,6 +400,7 @@ class SkiaBuildScript:
         self.branch = None
         self.variant = "gpu"
         self.target = "all"  # device, simulator, or all
+        self.crt = "MT"  # Windows CRT linkage: MT (static) or MD (dynamic)
 
     def parse_arguments(self):
         parser = argparse.ArgumentParser(description="Build Skia for macOS, iOS, visionOS, Windows, Linux and WebAssembly")
@@ -404,6 +413,8 @@ class SkiaBuildScript:
                            help="Build variant: cpu (no GPU) or gpu (with Graphite/Dawn)")
         parser.add_argument("-target", choices=["device", "simulator", "all"], default="all",
                            help="Build target for iOS/visionOS: device, simulator, or all")
+        parser.add_argument("-crt", choices=["MT", "MD"], default="MT",
+                           help="Windows CRT linkage: MT (static, default) or MD (dynamic). No effect on other platforms")
         parser.add_argument("--shallow", action="store_true", help="Perform a shallow clone of the Skia repository")
         parser.add_argument("--zip-all", action="store_true",
                            help="Create a zip archive containing all platform libraries")
@@ -427,6 +438,10 @@ class SkiaBuildScript:
         self.branch = args.branch
         self.variant = args.variant
         self.target = args.target
+        self.crt = args.crt
+        if self.crt == "MD" and self.platform != "win":
+            colored_print("Warning: -crt MD only affects Windows; ignoring.", Colors.WARNING)
+            self.crt = "MT"
         self.shallow_clone = args.shallow
         self.create_zip_all = args.zip_all
         self.strip_arm64e = args.strip_arm64e
@@ -460,9 +475,22 @@ class SkiaBuildScript:
                 colored_print(f"Invalid architecture for {self.platform}: {arch}", Colors.FAIL)
                 sys.exit(1)
 
+    def build_tmp_dir(self, arch):
+        """Get the intermediate ninja/GN output directory for an arch."""
+        name = f"{self.platform}_{self.config}_{arch}_{self.variant}"
+        if self.platform == "win" and self.crt == "MD":
+            name += "_md"
+        return TMP_DIR / name
+
+    def win_angle_enabled(self, arch):
+        """ANGLE is built on Windows GPU builds, except arm64 (no GL there)."""
+        return self.platform == "win" and self.variant == "gpu" and arch != "arm64"
+
     def get_lib_dir(self, platform):
         """Get the library directory for a platform, including variant suffix."""
         variant_suffix = f"-{self.variant}"
+        if platform == "win" and self.crt == "MD":
+            variant_suffix += "-md"
         if platform == "mac":
             return BASE_DIR / f"mac{variant_suffix}" / "lib"
         elif platform == "ios":
@@ -487,7 +515,7 @@ class SkiaBuildScript:
         subprocess.run([sys.executable, "tools/git-sync-deps"], check=True)
 
     def generate_gn_args(self, arch: str):
-        output_dir = TMP_DIR / f"{self.platform}_{self.config}_{arch}_{self.variant}"
+        output_dir = self.build_tmp_dir(arch)
         gn_args = BASIC_GN_ARGS
 
         # Use CPU or GPU platform-specific args based on variant
@@ -579,7 +607,11 @@ class SkiaBuildScript:
     ]
 '''
         elif self.platform == "win":
-            gn_args += f"extra_cflags = [\"{'/MTd' if self.config == 'Debug' else '/MT'}\"]\n"
+            if self.crt == "MD":
+                crt_flag = "/MDd" if self.config == "Debug" else "/MD"
+            else:
+                crt_flag = "/MTd" if self.config == "Debug" else "/MT"
+            gn_args += f"extra_cflags = [\"{crt_flag}\"]\n"
             # Map architecture names to GN target_cpu values
             if arch == "Win32":
                 gn_args += "target_cpu = \"x86\"\n"
@@ -589,6 +621,9 @@ class SkiaBuildScript:
                 gn_args += "skia_use_gl = false\n"
             else:  # x64
                 gn_args += "target_cpu = \"x64\"\n"
+            # ANGLE requires GL, so it's excluded on arm64 (skia_use_gl = false above)
+            if self.win_angle_enabled(arch):
+                gn_args += "skia_use_angle = true\n"
             # Find Clang installation - prefer standalone LLVM, fallback to VS bundled
             clang_paths = [
                 "C:\\Program Files\\LLVM",
@@ -616,7 +651,7 @@ class SkiaBuildScript:
         subprocess.run(["./bin/gn", "gen", str(output_dir), f"--args={gn_args}"], check=True)
 
     def build_skia(self, arch: str):
-        output_dir = TMP_DIR / f"{self.platform}_{self.config}_{arch}_{self.variant}"
+        output_dir = self.build_tmp_dir(arch)
         
         # Get the list of libraries for the current platform
         libs_to_build = LIBS[self.platform]
@@ -628,7 +663,11 @@ class SkiaBuildScript:
         # so pass bare GN target names to ninja and rename at move_libs time.
         elif self.platform == "wasm":
             libs_to_build = [lib[3:-2] if lib.startswith('lib') and lib.endswith('.a') else lib for lib in libs_to_build]
-        
+
+        # ANGLE target names are already bare, so add them after the .lib stripping
+        if self.win_angle_enabled(arch):
+            libs_to_build = libs_to_build + ANGLE_NINJA_TARGETS
+
         # Construct the ninja command with all library targets
         ninja_command = ["ninja", "-C", str(output_dir)] + libs_to_build
 
@@ -643,7 +682,7 @@ class SkiaBuildScript:
             sys.exit(1)
 
     def move_libs(self, arch: str):
-        src_dir = TMP_DIR / f"{self.platform}_{self.config}_{arch}_{self.variant}"
+        src_dir = self.build_tmp_dir(arch)
         lib_dir = self.get_lib_dir(self.platform)
         if self.platform == "mac":
             dest_dir = lib_dir / self.config / (arch if arch != "universal" else "")
@@ -700,6 +739,16 @@ class SkiaBuildScript:
                         self.strip_arm64e_from_library(dest_file)
                 else:
                     colored_print(f"Warning: Dawn library {lib} not found", Colors.WARNING)
+
+        # Copy ANGLE shared libraries and import libs (Windows GPU variant)
+        if self.win_angle_enabled(arch):
+            for lib in ANGLE_FILES_WIN:
+                src_file = src_dir / lib
+                if src_file.exists():
+                    shutil.copy2(str(src_file), str(dest_dir / lib))
+                    colored_print(f"Copied {lib} (ANGLE) to {dest_dir}", Colors.OKGREEN)
+                else:
+                    colored_print(f"Warning: ANGLE file {lib} not found in {src_dir}", Colors.WARNING)
 
     def strip_arm64e_from_library(self, lib_path):
         """Strip arm64e slice from a fat library, keeping only arm64."""
@@ -894,6 +943,77 @@ class SkiaBuildScript:
         shutil.copy2(icu_data_src, icu_data_dest)
         colored_print(f"Copied ICU data file to {icu_data_dest}", Colors.OKGREEN)
 
+    def package_angle_headers(self, dest_dir):
+        """Copy ANGLE public headers (EGL, GLES2/3, KHR, ...) to <dest_dir>/angle.
+
+        The subtree is preserved so <EGL/egl.h> can resolve its sibling
+        <KHR/khrplatform.h> include; consumers add include/angle to their paths."""
+        src_root = SKIA_SRC_DIR / "third_party" / "externals" / "angle2" / "include"
+        if not src_root.exists():
+            colored_print(f"Warning: ANGLE include dir not found at {src_root}", Colors.WARNING)
+            return
+        dest_root = dest_dir / "angle"
+        for root, dirs, files in os.walk(src_root):
+            for file in files:
+                if file.endswith(('.h', '.inc')):
+                    src_file = Path(root) / file
+                    dest_file = dest_root / src_file.relative_to(src_root)
+                    dest_file.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copy2(src_file, dest_file)
+        colored_print(f"Packaged ANGLE headers to {dest_root}", Colors.OKGREEN)
+
+    def patch_angle_build_gn(self):
+        """Expose ANGLE libraries as a top-level GN target.
+
+        Skia's BUILD.gn only references //third_party/angle2 from test/tool
+        targets, which don't exist in official builds — so GN never loads the
+        ANGLE build files and ninja has no libEGL/libGLESv2 targets. Appending
+        a group makes GN generate them. Idempotent; the checkout is reset with
+        git reset --hard on every run, so the append is re-applied each time."""
+        if not any(self.win_angle_enabled(arch) for arch in self.archs):
+            return
+        build_gn = SKIA_SRC_DIR / "BUILD.gn"
+        if not build_gn.exists():
+            colored_print(f"Warning: {build_gn} not found; cannot enable ANGLE targets", Colors.WARNING)
+            return
+        content = build_gn.read_text()
+        if 'group("angle_libs")' in content:
+            return
+        content += '''
+# Added by skia-builder: expose ANGLE libraries as a top-level target so they
+# are generated even when Skia's tools (the only in-tree consumers) are off.
+if (skia_use_angle) {
+  group("angle_libs") {
+    deps = [ "//third_party/angle2" ]
+  }
+}
+'''
+        build_gn.write_text(content)
+        colored_print("Appended angle_libs group to Skia BUILD.gn", Colors.OKGREEN)
+
+    def patch_dawn_crt_runtime(self):
+        """Set Dawn's CMake CRT flags to match -crt.
+
+        Skia hardcodes /MT (MultiThreaded) for Dawn's CMake build. The rewrite is
+        deterministic in both directions because the Skia checkout is shared
+        between MT and MD builds."""
+        if self.platform != "win" or self.variant != "gpu":
+            return
+        cmake_utils = SKIA_SRC_DIR / "third_party" / "dawn" / "cmake_utils.py"
+        if not cmake_utils.exists():
+            colored_print(f"Warning: {cmake_utils} not found; cannot set Dawn CRT", Colors.WARNING)
+            return
+        runtime = "MultiThreadedDLL" if self.crt == "MD" else "MultiThreaded"
+        absl = "OFF" if self.crt == "MD" else "ON"
+        content = cmake_utils.read_text()
+        new_content = re.sub(r'-DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded(?:DLL)?',
+                             f'-DCMAKE_MSVC_RUNTIME_LIBRARY={runtime}', content)
+        new_content = re.sub(r'-DABSL_MSVC_STATIC_RUNTIME=(?:ON|OFF)',
+                             f'-DABSL_MSVC_STATIC_RUNTIME={absl}', new_content)
+        if new_content != content:
+            cmake_utils.write_text(new_content)
+            colored_print(f"Dawn CMake CRT set to {runtime} (ABSL_MSVC_STATIC_RUNTIME={absl})", Colors.OKGREEN)
+
     def package_generated_dawn_headers(self, build_dir, dest_dir):
         """Copy generated Dawn headers from build output to package.
         Falls back to copying from existing macOS build if headers not found locally."""
@@ -1039,7 +1159,7 @@ class SkiaBuildScript:
 
     def cleanup(self):
         for arch in self.archs:
-            shutil.rmtree(TMP_DIR / f"{self.platform}_{self.config}_{arch}_{self.variant}", ignore_errors=True)
+            shutil.rmtree(self.build_tmp_dir(arch), ignore_errors=True)
         colored_print("Cleaned up temporary directories", Colors.OKBLUE)
 
     def setup_skia_repo(self):
@@ -1106,6 +1226,8 @@ class SkiaBuildScript:
         target_cpu = "{arch}"
         variant = "{self.variant}"
         """
+        if self.platform == "win":
+            gn_args += f'crt = "{self.crt}"\n'
         # Remove leading whitespace from each line while preserving structure
         lines = [line.strip() for line in gn_args.strip().splitlines()]
         return '\n'.join(line for line in lines if line)
@@ -1214,6 +1336,8 @@ class SkiaBuildScript:
 
         self.sync_deps()
         self.apply_patches()
+        self.patch_dawn_crt_runtime()
+        self.patch_angle_build_gn()
 
         if "universal" in self.archs or self.xcframework:
             self.archs = ["x86_64", "arm64"]
@@ -1245,12 +1369,14 @@ class SkiaBuildScript:
         else:
             self.package_headers(BASE_DIR / "include")
             self.package_icu_data(BASE_DIR / "share")
+            if any(self.win_angle_enabled(arch) for arch in self.archs):
+                self.package_angle_headers(BASE_DIR / "include")
 
         # Copy generated Dawn headers (for Graphite WebGPU backend)
         if self.variant == "gpu":
             # Use the first arch's build dir for generated headers (they're the same across archs)
             first_arch = self.archs[0]
-            build_dir = TMP_DIR / f"{self.platform}_{self.config}_{first_arch}_{self.variant}"
+            build_dir = self.build_tmp_dir(first_arch)
             self.package_generated_dawn_headers(build_dir, BASE_DIR / "include")
 
         self.write_gn_args_summary()

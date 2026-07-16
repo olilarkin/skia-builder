@@ -81,6 +81,20 @@ LLVM should be installed in `C:\Program Files\LLVM\`
 py -3 build-skia.py -config Release -branch chrome/m129 win
 ```
 
+### CRT linkage (/MT vs /MD)
+
+By default Windows libraries are built with the static CRT (`/MT`, `/MTd` for Debug). Pass `-crt MD` to build against the dynamic CRT (`/MD`, `/MDd` for Debug) instead — this also switches Dawn's CMake build to `MultiThreadedDLL`. MD builds are output to `build/win-gpu-md/lib/` so they don't collide with the default MT output in `build/win-gpu/lib/`.
+
+```bash
+py -3 build-skia.py -config Release -branch chrome/m129 -crt MD win
+```
+
+In CI, MD builds are published as separate zips: `skia-build-win-x64-gpu-md-release.zip` and `skia-build-win-x64-gpu-md-debug.zip` (the existing MT artifact names are unchanged).
+
+### ANGLE
+
+Windows GPU builds enable ANGLE (`skia_use_angle=true`). The Windows packages include `libEGL.dll`/`libGLESv2.dll` and their import libs (`libEGL.dll.lib`/`libGLESv2.dll.lib`) alongside the Skia libraries, plus the ANGLE headers (EGL, GLES2/3, KHR) under `include/angle/` — add that directory to your include paths to use `<EGL/egl.h>` etc. The ANGLE DLLs are self-contained, so the same DLLs work with both MT and MD packages.
+
 ## CI / GitHub Actions
 
 The repository includes a GitHub Actions workflow (`.github/workflows/build-skia.yml`) that builds all platforms in parallel and creates releases tagged with the Skia branch name.

@@ -80,6 +80,19 @@ jobs:
             variant: gpu
             arch: x64
             config: Debug
+          # Windows dynamic CRT (/MD) variants
+          - os: windows-2022
+            platform: win
+            variant: gpu
+            arch: x64
+            config: Release
+            crt: MD
+          - os: windows-2022
+            platform: win
+            variant: gpu
+            arch: x64
+            config: Debug
+            crt: MD
           - os: ubuntu-latest
             platform: linux
             variant: gpu
@@ -246,8 +259,12 @@ jobs:
           if [ -n "${{ matrix.target }}" ]; then
             TARGET_ARG="-target ${{ matrix.target }}"
           fi
+          CRT_ARG=""
+          if [ -n "${{ matrix.crt }}" ]; then
+            CRT_ARG="-crt ${{ matrix.crt }}"
+          fi
           CONFIG="${{ matrix.config || 'Release' }}"
-          python3 build-skia.py ${{ matrix.platform }} -variant ${{ matrix.variant }} -config $CONFIG --shallow -branch ${{ env.SKIA_BRANCH }} $ARCH_ARG $TARGET_ARG
+          python3 build-skia.py ${{ matrix.platform }} -variant ${{ matrix.variant }} -config $CONFIG --shallow -branch ${{ env.SKIA_BRANCH }} $ARCH_ARG $TARGET_ARG $CRT_ARG
 
       - name: Set archive name
         if: steps.check.outputs.should_build == 'true'
@@ -268,18 +285,24 @@ jobs:
             ARCH_SAFE=$(echo "${{ matrix.arch }}" | tr ',' '-')
             NAME="${NAME}-${ARCH_SAFE}"
           fi
-          NAME="${NAME}-${{ matrix.variant }}-${CONFIG_LOWER}"
+          # Windows /MD builds get a -md suffix on the variant (dir and archive name)
+          VARIANT_SUFFIX="${{ matrix.variant }}"
+          if [ "${{ matrix.crt }}" = "MD" ]; then
+            VARIANT_SUFFIX="${VARIANT_SUFFIX}-md"
+          fi
+          NAME="${NAME}-${VARIANT_SUFFIX}-${CONFIG_LOWER}"
           echo "name=${NAME}" >> "$GITHUB_OUTPUT"
+          echo "libdir=build/${{ matrix.platform }}-${VARIANT_SUFFIX}" >> "$GITHUB_OUTPUT"
 
       - name: Create dummy files for test mode
         if: steps.check.outputs.should_build == 'true' && inputs.test_mode
         shell: bash
         run: |
           mkdir -p build/include
-          mkdir -p build/${{ matrix.platform }}-${{ matrix.variant }}
+          mkdir -p ${{ steps.archive.outputs.libdir }}
           echo "Test file" > build/include/test.h
-          echo "Test lib" > build/${{ matrix.platform }}-${{ matrix.variant }}/test.lib
-          echo "GN args summary" > build/${{ matrix.platform }}-${{ matrix.variant }}/gn_args.txt
+          echo "Test lib" > ${{ steps.archive.outputs.libdir }}/test.lib
+          echo "GN args summary" > ${{ steps.archive.outputs.libdir }}/gn_args.txt
 
       - name: Package binaries
         if: steps.check.outputs.should_build == 'true'
@@ -291,9 +314,9 @@ jobs:
             SHARE_DIR="build/share"
           fi
           if [ "${{ runner.os }}" == "Windows" ]; then
-            7z a -tzip ${{ steps.archive.outputs.name }}.zip build/include $SHARE_DIR build/${{ matrix.platform }}-${{ matrix.variant }}
+            7z a -tzip ${{ steps.archive.outputs.name }}.zip build/include $SHARE_DIR ${{ steps.archive.outputs.libdir }}
           else
-            zip -r ${{ steps.archive.outputs.name }}.zip build/include $SHARE_DIR build/${{ matrix.platform }}-${{ matrix.variant }}
+            zip -r ${{ steps.archive.outputs.name }}.zip build/include $SHARE_DIR ${{ steps.archive.outputs.libdir }}
           fi
 
       - name: Upload artifact
@@ -445,6 +468,8 @@ jobs:
             ./skia-build-visionos-simulator-arm64-gpu-release/skia-build-visionos-simulator-arm64-gpu-release.zip
             ./skia-build-win-x64-gpu-release/skia-build-win-x64-gpu-release.zip
             ./skia-build-win-x64-gpu-debug/skia-build-win-x64-gpu-debug.zip
+            ./skia-build-win-x64-gpu-md-release/skia-build-win-x64-gpu-md-release.zip
+            ./skia-build-win-x64-gpu-md-debug/skia-build-win-x64-gpu-md-debug.zip
             ./skia-build-linux-x64-gpu-release/skia-build-linux-x64-gpu-release.zip
             ./skia-build-wasm-wasm32-gpu-release/skia-build-wasm-wasm32-gpu-release.zip
             ./Skia.xcframework/Skia.xcframework.zip

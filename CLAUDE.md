@@ -28,6 +28,7 @@ python3 build-skia.py <platform> -config Debug    # Debug build (default: Releas
 python3 build-skia.py <platform> -branch chrome/m130  # Specific Skia branch
 python3 build-skia.py <platform> --shallow        # Shallow clone
 python3 build-skia.py <platform> -archs x86_64,arm64  # Specific architectures
+python3 build-skia.py win -crt MD                 # Windows dynamic CRT (/MD; default MT)
 
 # Windows (use py -3 or the build-win.sh helper)
 py -3 build-skia.py win -config Release -branch chrome/m130
@@ -62,7 +63,8 @@ build/
 ├── mac/lib/           # macOS libraries
 ├── ios/lib/           # iOS libraries (per-arch)
 ├── visionos/lib/      # visionOS libraries (arm64)
-├── win/lib/           # Windows libraries
+├── win-gpu/lib/       # Windows libraries (/MT static CRT; incl. ANGLE DLLs + import libs)
+├── win-gpu-md/lib/    # Windows libraries (/MD dynamic CRT, built with -crt MD)
 ├── linux/lib/         # Linux libraries
 ├── wasm/lib/          # WASM libraries
 └── xcframework/       # XCFramework output
@@ -72,6 +74,8 @@ build/
 - `USE_LIBGRAPHEME` constant (line 81) toggles between libgrapheme and ICU for Unicode
 - `MAC_MIN_VERSION` / `IOS_MIN_VERSION` set deployment targets
 - `EXCLUDE_DEPS` lists Skia dependencies to skip during sync
+- `-crt {MT,MD}` selects the Windows CRT linkage (default MT). MD outputs to `win-gpu-md/` dirs and CI publishes them as `skia-build-win-x64-gpu-md-*.zip`. `patch_dawn_crt_runtime()` rewrites Skia's `third_party/dawn/cmake_utils.py` (MultiThreaded vs MultiThreadedDLL) to match, bidirectionally, since the checkout is shared between MT/MD builds
+- Windows GPU builds enable ANGLE (`skia_use_angle=true`, except arm64 where GL is off). `libEGL.dll`/`libGLESv2.dll` + import libs are copied next to the Skia libs; ANGLE headers are packaged to `build/include/angle/`
 
 ## visionOS Support
 

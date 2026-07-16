@@ -24,6 +24,21 @@ on:
         required: false
         type: boolean
         default: false
+      mac_min_version:
+        description: 'Minimum macOS deployment target (empty = script default)'
+        required: false
+        type: string
+        default: ''
+      ios_min_version:
+        description: 'Minimum iOS deployment target (empty = script default)'
+        required: false
+        type: string
+        default: ''
+      visionos_min_version:
+        description: 'Minimum visionOS deployment target (empty = script default)'
+        required: false
+        type: string
+        default: ''
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}-${{ inputs.skia_branch || 'chrome/m144' }}-${{ inputs.platforms || 'all' }}-${{ inputs.skip_release && 'skip-release' || 'release' }}
@@ -263,8 +278,18 @@ jobs:
           if [ -n "${{ matrix.crt }}" ]; then
             CRT_ARG="-crt ${{ matrix.crt }}"
           fi
+          MIN_VERSION_ARGS=""
+          if [ -n "${{ inputs.mac_min_version }}" ]; then
+            MIN_VERSION_ARGS="$MIN_VERSION_ARGS -mac-min-version ${{ inputs.mac_min_version }}"
+          fi
+          if [ -n "${{ inputs.ios_min_version }}" ]; then
+            MIN_VERSION_ARGS="$MIN_VERSION_ARGS -ios-min-version ${{ inputs.ios_min_version }}"
+          fi
+          if [ -n "${{ inputs.visionos_min_version }}" ]; then
+            MIN_VERSION_ARGS="$MIN_VERSION_ARGS -visionos-min-version ${{ inputs.visionos_min_version }}"
+          fi
           CONFIG="${{ matrix.config || 'Release' }}"
-          python3 build-skia.py ${{ matrix.platform }} -variant ${{ matrix.variant }} -config $CONFIG --shallow -branch ${{ env.SKIA_BRANCH }} $ARCH_ARG $TARGET_ARG $CRT_ARG
+          python3 build-skia.py ${{ matrix.platform }} -variant ${{ matrix.variant }} -config $CONFIG --shallow -branch ${{ env.SKIA_BRANCH }} $ARCH_ARG $TARGET_ARG $CRT_ARG $MIN_VERSION_ARGS
 
       - name: Set archive name
         if: steps.check.outputs.should_build == 'true'
